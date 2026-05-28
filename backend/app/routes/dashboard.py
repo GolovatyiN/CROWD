@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user
@@ -20,164 +20,165 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 @router.get("/stats")
 def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Heavy endpoint — consolidate into a small number of aggregated queries.
+
+    Prior version fired ~30 small SELECTs (one per stat, one per day for the
+    sparkline, one per employee). Over a transatlantic link that's seconds of
+    overhead. Now: one CASE-WHEN aggregate per table.
+    """
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day)
     yesterday_start = today_start - timedelta(days=1)
     week_start = today_start - timedelta(days=7)
     prev_week_start = today_start - timedelta(days=14)
     month_start = datetime(now.year, now.month, 1)
+    series_start = today_start - timedelta(days=13)
 
-    donors_total = db.query(func.count(Donor.id)).scalar() or 0
-    donors_active = db.query(func.count(Donor.id)).filter(Donor.is_active.is_(True)).scalar() or 0
-    items_total = db.query(func.count(AnchorPlanItem.id)).scalar() or 0
-    placements_total = db.query(func.count(Placement.id)).scalar() or 0
+    # ---- Donors aggregate ----
+    donor_row = db.query(
+        func.count(Donor.id).label("total"),
+        func.sum(case((Donor.is_active.is_(True), 1), else_=0)).label("active"),
+    ).one()
+    donors_total = donor_row.total or 0
+    donors_active = donor_row.active or 0
 
-    placements_today = (
-        db.query(func.count(Placement.id))
-        .filter(Placement.placed_at >= today_start, Placement.status == "placed")
-        .scalar() or 0
-    )
-    placements_yesterday = (
-        db.query(func.count(Placement.id))
-        .filter(
-            Placement.placed_at >= yesterday_start,
-            Placement.placed_at < today_start,
-            Placement.status == "placed",
-        ).scalar() or 0
-    )
-    placements_month = (
-        db.query(func.count(Placement.id))
-        .filter(Placement.placed_at >= month_start, Placement.status == "placed")
-        .scalar() or 0
-    )
-    placements_week = (
-        db.query(func.count(Placement.id))
-        .filter(Placement.placed_at >= week_start, Placement.status == "placed")
-        .scalar() or 0
-    )
-    placements_prev_week = (
-        db.query(func.count(Placement.id))
-        .filter(
-            Placement.placed_at >= prev_week_start,
-            Placement.placed_at < week_start,
-            Placement.status == "placed",
-        ).scalar() or 0
-    )
-
-    status_rows = (
+    # ---- Plan items aggregate ----
+    item_rows = (
         db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
         .group_by(AnchorPlanItem.status)
         .all()
     )
-    by_status = {s: c for s, c in status_rows}
+    by_status = {s: c for s, c in item_rows}
+    items_total = sum(by_status.values())
 
-    top_employees_rows = (
-        db.query(Placement.employee_id, func.count(Placement.id))
+    # ---- Placements aggregate: counts for today / yesterday / week / prev week / month / all ----
+    placed = Placement.status == "placed"
+    placement_row = db.query(
+        func.count(Placement.id).label("total"),
+        func.sum(case((placed & (Placement.placed_at >= today_start), 1), else_=0)).label("today"),
+        func.sum(case(
+            (placed & (Placement.placed_at >= yesterday_start) & (Placement.placed_at < today_start), 1),
+            else_=0,
+        )).label("yesterday"),
+        func.sum(case((placed & (Placement.placed_at >= week_start), 1), else_=0)).label("week"),
+        func.sum(case(
+            (placed & (Placement.placed_at >= prev_week_start) & (Placement.placed_at < week_start), 1),
+            else_=0,
+        )).label("prev_week"),
+        func.sum(case((placed & (Placement.placed_at >= month_start), 1), else_=0)).label("month"),
+    ).one()
+    placements_total = placement_row.total or 0
+    placements_today = placement_row.today or 0
+    placements_yesterday = placement_row.yesterday or 0
+    placements_week = placement_row.week or 0
+    placements_prev_week = placement_row.prev_week or 0
+    placements_month = placement_row.month or 0
+
+    # ---- 14-day series: one query, grouped by day ----
+    day_col = func.date(Placement.placed_at)
+    series_rows = (
+        db.query(day_col.label("d"), func.count(Placement.id))
+        .filter(Placement.status == "placed", Placement.placed_at >= series_start)
+        .group_by(day_col)
+        .all()
+    )
+    series_counts = {str(r[0]): r[1] for r in series_rows}
+    series = []
+    for i in range(13, -1, -1):
+        day = today_start - timedelta(days=i)
+        key = day.strftime("%Y-%m-%d")
+        series.append({"date": key, "count": series_counts.get(key, 0)})
+
+    # ---- Top employees (single grouped query, join user names) ----
+    top_rows = (
+        db.query(User.id, User.email, User.full_name, func.count(Placement.id).label("cnt"))
+        .join(Placement, Placement.employee_id == User.id)
         .filter(Placement.status == "placed")
-        .group_by(Placement.employee_id)
+        .group_by(User.id, User.email, User.full_name)
         .order_by(func.count(Placement.id).desc())
         .limit(5)
         .all()
     )
-    top_employees = []
-    for emp_id, cnt in top_employees_rows:
-        if not emp_id:
-            continue
-        u = db.get(User, emp_id)
-        top_employees.append({
-            "user_id": emp_id,
-            "name": (u.full_name or u.email) if u else "?",
-            "email": u.email if u else "",
-            "count": cnt,
-        })
+    top_employees = [
+        {"user_id": r.id, "name": (r.full_name or r.email), "email": r.email, "count": r.cnt}
+        for r in top_rows
+    ]
 
-    series = []
-    for i in range(13, -1, -1):
-        day_start = today_start - timedelta(days=i)
-        day_end = day_start + timedelta(days=1)
-        c = (
-            db.query(func.count(Placement.id))
-            .filter(Placement.placed_at >= day_start, Placement.placed_at < day_end, Placement.status == "placed")
-            .scalar() or 0
-        )
-        series.append({"date": day_start.strftime("%Y-%m-%d"), "count": c})
-
-    # Recent activity
-    recent_placed = (
-        db.query(Placement)
+    # ---- Recent activity (placements joined with user) ----
+    recent_q = (
+        db.query(Placement, User.full_name, User.email)
+        .outerjoin(User, User.id == Placement.employee_id)
         .filter(Placement.status == "placed")
         .order_by(Placement.placed_at.desc())
         .limit(8)
         .all()
     )
-    recent_activity = []
-    for p in recent_placed:
-        emp = db.get(User, p.employee_id) if p.employee_id else None
-        recent_activity.append({
+    recent_activity = [
+        {
             "id": p.id,
             "target_url": p.target_url,
             "donor_url": p.donor_url,
             "result_url": p.result_url,
-            "employee_name": (emp.full_name or emp.email) if emp else "—",
+            "employee_name": (full_name or email or "—"),
             "placed_at": p.placed_at.isoformat() if p.placed_at else None,
-        })
+        }
+        for p, full_name, email in recent_q
+    ]
 
-    # Problems feed (anchor plan items with status problem)
-    problem_items = (
-        db.query(AnchorPlanItem)
+    # ---- Problem items (single query joined with plan names) ----
+    problem_q = (
+        db.query(AnchorPlanItem, AnchorPlan.plan_name)
+        .outerjoin(AnchorPlan, AnchorPlan.id == AnchorPlanItem.anchor_plan_id)
         .filter(AnchorPlanItem.status == "problem")
         .order_by(AnchorPlanItem.updated_at.desc())
         .limit(8)
         .all()
     )
-    problems = []
-    for it in problem_items:
-        plan = db.get(AnchorPlan, it.anchor_plan_id)
-        problems.append({
+    problems = [
+        {
             "id": it.id,
             "anchor_plan_id": it.anchor_plan_id,
-            "plan_name": plan.plan_name if plan else "",
+            "plan_name": plan_name or "",
             "target_url": it.target_url,
             "target_domain": it.target_domain,
             "comment": it.comment,
             "updated_at": it.updated_at.isoformat() if it.updated_at else None,
-        })
+        }
+        for it, plan_name in problem_q
+    ]
 
-    # Per-employee progress
-    employees = db.query(User).filter(User.is_active.is_(True), User.role == "employee").all()
-    employees_progress = []
-    for u in employees:
-        total = (
-            db.query(func.count(AnchorPlanItem.id))
-            .filter(AnchorPlanItem.assigned_to == u.id)
-            .scalar() or 0
+    # ---- Per-employee progress: single grouped query with CASE-WHEN ----
+    done_when = AnchorPlanItem.status.in_(["placed", "done"])
+    in_progress_when = AnchorPlanItem.status.in_(["assigned", "in_progress", "donor_selected"])
+    problem_when = AnchorPlanItem.status.in_(["problem", "rejected"])
+    emp_rows = (
+        db.query(
+            User.id,
+            User.full_name,
+            User.email,
+            func.count(AnchorPlanItem.id).label("total"),
+            func.sum(case((done_when, 1), else_=0)).label("done"),
+            func.sum(case((in_progress_when, 1), else_=0)).label("in_progress"),
+            func.sum(case((problem_when, 1), else_=0)).label("problems"),
         )
-        done = (
-            db.query(func.count(AnchorPlanItem.id))
-            .filter(AnchorPlanItem.assigned_to == u.id, AnchorPlanItem.status.in_(["placed", "done"]))
-            .scalar() or 0
-        )
-        in_progress = (
-            db.query(func.count(AnchorPlanItem.id))
-            .filter(AnchorPlanItem.assigned_to == u.id, AnchorPlanItem.status.in_(["assigned", "in_progress", "donor_selected"]))
-            .scalar() or 0
-        )
-        problems_count = (
-            db.query(func.count(AnchorPlanItem.id))
-            .filter(AnchorPlanItem.assigned_to == u.id, AnchorPlanItem.status.in_(["problem", "rejected"]))
-            .scalar() or 0
-        )
-        if total or in_progress or problems_count:
-            employees_progress.append({
-                "user_id": u.id,
-                "name": u.full_name or u.email,
-                "email": u.email,
-                "total": total,
-                "done": done,
-                "in_progress": in_progress,
-                "problems": problems_count,
-            })
-    employees_progress.sort(key=lambda e: e["total"], reverse=True)
+        .join(AnchorPlanItem, AnchorPlanItem.assigned_to == User.id)
+        .filter(User.is_active.is_(True), User.role == "employee")
+        .group_by(User.id, User.full_name, User.email)
+        .order_by(func.count(AnchorPlanItem.id).desc())
+        .all()
+    )
+    employees_progress = [
+        {
+            "user_id": r.id,
+            "name": (r.full_name or r.email),
+            "email": r.email,
+            "total": r.total or 0,
+            "done": r.done or 0,
+            "in_progress": r.in_progress or 0,
+            "problems": r.problems or 0,
+        }
+        for r in emp_rows
+    ]
 
     return {
         "donors_total": donors_total,

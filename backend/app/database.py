@@ -20,10 +20,12 @@ if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
     engine_kwargs = {"connect_args": connect_args}
 else:
-    # Tuned for serverless Postgres (Neon) — small pool, recycle before idle disconnect.
+    # Tuned for serverless Postgres (Neon).
+    # pool_size keeps a few warm connections — avoids TCP+TLS handshake on
+    # every request (each handshake ~200-300ms over a transatlantic link).
     engine_kwargs = {
-        "pool_size": 5,
-        "max_overflow": 5,
+        "pool_size": 10,
+        "max_overflow": 10,
         "pool_pre_ping": True,
         "pool_recycle": 300,
     }
