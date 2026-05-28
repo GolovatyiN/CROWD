@@ -141,7 +141,12 @@ def find_best_donor(
 
 
 def auto_match_plan(db: Session, plan_id: int) -> dict:
-    """Walk all not-yet-matched items in a plan and assign a donor where possible.
+    """Walk all items in a plan that still need a donor and pick the best one.
+
+    Eligible = any item in this plan whose `selected_donor_id` is NULL and that
+    isn't already considered finished (placed / done / rejected). Status
+    doesn't matter otherwise — an item assigned to an employee still needs a
+    donor, and the employee can't act until one is picked.
 
     Returns counters and per-item status updates. Caller commits.
     """
@@ -149,8 +154,8 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         select(AnchorPlanItem).where(
             and_(
                 AnchorPlanItem.anchor_plan_id == plan_id,
-                AnchorPlanItem.status.in_(["new", "problem"]),
                 AnchorPlanItem.selected_donor_id.is_(None),
+                ~AnchorPlanItem.status.in_(["placed", "done", "rejected"]),
             )
         )
     ).scalars().all()
@@ -170,6 +175,8 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
             problem_items.append(item.id)
             continue
         item.selected_donor_id = donor.id
+        # Promote 'new' → 'donor_selected', leave 'assigned'/'in_progress' alone
+        # so the employee keeps ownership.
         if item.status in ("new", "problem"):
             item.status = "donor_selected"
         used_ids.add(donor.id)
@@ -179,6 +186,7 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         "matched": matched,
         "not_matched": len(problem_items),
         "items_problem": problem_items,
+        "considered": len(items),
     }
 
 

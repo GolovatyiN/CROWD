@@ -28,7 +28,13 @@ export async function renderPlanDetails(host, planId) {
     headerActions.appendChild(el("button", { onClick: async () => {
       try {
         const r = await api.autoMatch(planId);
-        toast(`Подобрано: ${r.matched}, проблем: ${r.not_matched}`, "success");
+        if (!r.considered) {
+          toast("Нет строк, требующих подбора — у всех уже есть донор", "warning");
+        } else if (!r.matched) {
+          toast(`Рассмотрено ${r.considered}, подходящих доноров не нашлось (гео/язык/тип/стоп-лист)`, "error");
+        } else {
+          toast(`Подобрано: ${r.matched} из ${r.considered}${r.not_matched ? `, проблем: ${r.not_matched}` : ""}`, "success");
+        }
         load();
       } catch (e) { toast(e.message, "error"); }
     }}, icon("zap", { size: 14 }), el("span", {}, "Подобрать доноров")));

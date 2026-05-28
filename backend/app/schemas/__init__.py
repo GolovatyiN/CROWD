@@ -198,6 +198,7 @@ class AutoMatchResult(BaseModel):
     matched: int
     not_matched: int
     items_problem: List[int] = []
+    considered: int = 0
 
 
 # ---------- Placements ----------
