@@ -172,25 +172,29 @@ def import_donors(db: Session, file_bytes: bytes, filename: str, user_id: Option
                 inserted += 1
             pending += 1
             if pending >= BATCH:
+                # Commit each batch as its own transaction so a poison row
+                # in batch N+1 can't undo the work of batches 1..N.
                 try:
-                    db.flush()
+                    db.commit()
                     pending = 0
                 except (IntegrityError, DataError) as e:
                     db.rollback()
                     failed += pending
+                    inserted = max(0, inserted - pending)  # batch did not land
                     errors.append({"row": int(idx) + 2, "error": f"батч сброшен: {str(e.orig)[:150]}"})
                     pending = 0
         except Exception as e:
             db.rollback()
             failed += 1
             errors.append({"row": int(idx) + 2, "error": str(e)[:200]})
-    # Final flush
+    # Final commit for the tail
     if pending:
         try:
-            db.flush()
+            db.commit()
         except (IntegrityError, DataError) as e:
             db.rollback()
             failed += pending
+            inserted = max(0, inserted - pending)
             errors.append({"row": "finalize", "error": str(e.orig)[:200]})
 
     log = ImportLog(

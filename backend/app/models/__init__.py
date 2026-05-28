@@ -1,6 +1,6 @@
 from datetime import datetime
 from sqlalchemy import (
-    String, Integer, Float, Boolean, DateTime, Text, ForeignKey,
+    String, Integer, BigInteger, Float, Boolean, DateTime, Text, ForeignKey,
     UniqueConstraint, Index,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -30,9 +30,11 @@ class Donor(Base):
     donor_url: Mapped[str] = mapped_column(String(512), unique=True, index=True, nullable=False)
     domain: Mapped[str] = mapped_column(String(255), index=True, default="")
     tr: Mapped[float] = mapped_column(Float, default=0)
-    organic_traffic: Mapped[int] = mapped_column(Integer, default=0)
-    ref_domains: Mapped[int] = mapped_column(Integer, default=0)
-    backlinks: Mapped[int] = mapped_column(Integer, default=0)
+    # Top sites (wikipedia, pinterest, etc.) have billions of backlinks and
+    # hundreds of millions of organic visits — overflow int4 on Postgres.
+    organic_traffic: Mapped[int] = mapped_column(BigInteger, default=0)
+    ref_domains: Mapped[int] = mapped_column(BigInteger, default=0)
+    backlinks: Mapped[int] = mapped_column(BigInteger, default=0)
     geo: Mapped[str] = mapped_column(String(64), default="", index=True)
     language: Mapped[str] = mapped_column(String(64), default="", index=True)
     link_type: Mapped[str] = mapped_column(String(32), default="unknown")  # dofollow|nofollow|mixed|unknown
