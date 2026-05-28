@@ -1,212 +1,276 @@
 import { api } from "../api.js";
-import { el, statusPill, STATUS_LABELS, emptyState, copyButton, copy } from "../components/dom.js";
+import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
 
+// Table view tuned for high-throughput work (200+ placements/day).
+// Workflow per row:
+//   1. Click "Взять" (or skip — happens automatically when result is entered)
+//   2. Open donor URL in new tab (one click on the donor cell)
+//   3. Post the link there, copy resulting URL
+//   4. Paste into "Результат" input → Enter → row is marked placed
+//   5. Move to next row
+
 const VISIBLE_STATUSES = ["", "assigned", "donor_selected", "in_progress", "placed", "problem"];
 
-const SORT_OPTIONS = [
-  { key: "updated_at", label: "По дате обновления" },
-  { key: "id", label: "По порядку загрузки" },
-  { key: "target_domain", label: "По домену" },
-  { key: "status", label: "По статусу" },
-  { key: "geo", label: "По гео" },
-];
-
 export async function renderMyTasks(host) {
+  const state = { status: "", sort: "id", order: "asc" };
+
   host.appendChild(el("div", { class: "page-header" },
     el("div", {},
       el("div", { class: "page-title" }, "Мои задачи"),
-      el("div", { class: "page-subtitle" }, "Берите задачи в работу и отмечайте размещения"),
-    ),
-    el("div", { class: "page-actions" },
-      sortDropdown(),
+      el("div", { class: "page-subtitle" }, "Вставь ссылку на результат и нажми Enter — задача автоматически закроется"),
     ),
   ));
 
-  const state = { status: "", sort: "updated_at", order: "desc" };
-
-  function sortDropdown() {
-    const sel = el("select", { style: { width: "auto", minWidth: "200px" }, onChange: (e) => {
-      state.sort = e.target.value;
-      renderMyTasks2();
-    }});
-    SORT_OPTIONS.forEach(o => {
-      const opt = el("option", { value: o.key }, o.label);
-      if (o.key === "updated_at") opt.selected = true;
-      sel.appendChild(opt);
-    });
-    return sel;
-  }
+  // Status filter pills
   const filterBar = el("div", { class: "row", style: { marginBottom: "12px", gap: "6px" } });
-  VISIBLE_STATUSES.forEach(s => {
-    const isActive = state.status === s;
-    const btn = el("button", { class: isActive ? "" : "ghost small", style: !isActive ? null : { height: "32px" },
-      onClick: () => { state.status = s; renderMyTasks2(); }
-    }, s ? (STATUS_LABELS[s] || s) : "Все");
-    filterBar.appendChild(btn);
-  });
-  host.appendChild(filterBar);
-
-  const wrap = el("div", {});
-  host.appendChild(wrap);
-
-  async function renderMyTasks2() {
-    // refresh filter bar
+  function rebuildFilters() {
     filterBar.innerHTML = "";
     VISIBLE_STATUSES.forEach(s => {
-      const isActive = state.status === s;
-      const btn = el("button", { class: isActive ? "" : "ghost small",
-        onClick: () => { state.status = s; renderMyTasks2(); }
-      }, s ? (STATUS_LABELS[s] || s) : "Все");
-      filterBar.appendChild(btn);
+      const active = state.status === s;
+      filterBar.appendChild(el("button", {
+        class: active ? "" : "ghost small",
+        onClick: () => { state.status = s; rebuildFilters(); load(); },
+      }, s ? (STATUS_LABELS[s] || s) : "Все"));
     });
+  }
+  rebuildFilters();
+  host.appendChild(filterBar);
 
+  const wrap = el("div", { class: "table-wrap" });
+  host.appendChild(wrap);
+
+  async function load() {
     wrap.innerHTML = "";
-    wrap.appendChild(el("div", { class: "task-grid" },
-      ...Array(3).fill(0).map(() => skeletonCard())
-    ));
+    wrap.appendChild(tableSkeleton(8, 9));
     try {
       const params = { sort: state.sort, order: state.order };
       if (state.status) params.status = state.status;
       const data = await api.myTasks(params);
-      wrap.innerHTML = "";
-      if (!data.length) {
-        wrap.appendChild(emptyState({
-          iconName: "tasks",
-          title: state.status ? "По выбранному фильтру задач нет" : "Назначенных задач пока нет",
-          desc: state.status ? "Попробуйте другой фильтр." : "Когда менеджер назначит на вас задачи, они появятся здесь.",
-        }));
-        return;
-      }
-      const grid = el("div", { class: "task-grid" });
-      data.forEach(t => grid.appendChild(taskCard(t, renderMyTasks2)));
-      wrap.appendChild(grid);
+      render(data);
     } catch (e) {
       wrap.innerHTML = "";
       wrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message }));
     }
   }
 
-  await renderMyTasks2();
+  function render(items) {
+    wrap.innerHTML = "";
+    if (!items.length) {
+      wrap.appendChild(emptyState({
+        iconName: "tasks",
+        title: state.status ? "По выбранному фильтру задач нет" : "Назначенных задач пока нет",
+        desc: state.status ? "Попробуйте другой фильтр." : "Когда менеджер назначит задачи, они появятся здесь.",
+      }));
+      return;
+    }
+
+    const table = el("table");
+    table.appendChild(el("thead", {}, el("tr", {},
+      el("th", { class: "compact left" }, "#"),
+      sortHeader("Целевая ссылка", "target_url", state, load, "left"),
+      sortHeader("Анкор", "anchor_text", state, load, "left"),
+      sortHeader("Гео", "geo", state, load),
+      sortHeader("Язык", "language", state, load),
+      el("th", {}, "Тип"),
+      el("th", { class: "left" }, "Донор"),
+      el("th", { class: "left" }, "Аккаунт / логин"),
+      sortHeader("Статус", "status", state, load),
+      el("th", { class: "left" }, "Результат"),
+      el("th", { class: "right" }, ""),
+    )));
+    const tbody = el("tbody");
+    items.forEach((t, idx) => tbody.appendChild(taskRow(t, idx + 1, load)));
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  await load();
 }
 
-function skeletonCard() {
-  return el("div", { class: "task-card" },
-    el("div", { class: "skeleton skeleton-row", style: { width: "75%", height: "14px" } }),
-    el("div", { class: "skeleton skeleton-row", style: { width: "45%", height: "12px" } }),
-    el("div", { class: "skeleton skeleton-row", style: { width: "100%", height: "60px", borderRadius: "8px", marginTop: "6px" } }),
-  );
-}
-
-function taskCard(t, reload) {
+function taskRow(t, num, reload) {
   const donor = t.donor;
-  const placement = t.placement;
+  let placement = t.placement;
   const isPlaced = placement?.status === "placed";
 
-  const card = el("div", { class: "task-card" });
-
-  // Header: target + status
-  card.appendChild(el("div", { class: "target-row" },
-    el("div", { class: "target" },
-      el("div", { class: "anchor-label" }, "Целевая ссылка"),
-      el("a", { href: t.target_url, target: "_blank" }, t.target_url),
-    ),
-    statusPill(t.status),
-  ));
-
-  // Anchor + meta
-  card.appendChild(el("div", {},
-    el("div", { class: "anchor-label" }, "Анкор"),
-    el("div", { class: "anchor" }, t.anchor_text || el("span", { class: "dimmed" }, "(без анкора)")),
-  ));
-  card.appendChild(el("div", { class: "meta" },
-    t.geo && el("span", {}, icon("target", { size: 12 }), " ", t.geo),
-    t.language && el("span", {}, "🌐 " + t.language),
-    t.required_link_type && el("span", {}, el("span", { class: "pill" }, t.required_link_type)),
-  ));
-
-  // Donor block
-  if (donor) {
-    card.appendChild(el("div", { class: "donor-row" },
-      el("div", { class: "anchor-label" }, "Донор"),
-      el("a", { href: donor.donor_url, target: "_blank" }, donor.donor_url),
-      el("div", { class: "muted", style: { fontSize: "11.5px" } }, `${donor.geo || "—"} · ${donor.language || "—"} · ${donor.link_type}`),
-    ));
-  } else {
-    card.appendChild(el("div", { class: "donor-row" },
-      el("div", { class: "anchor-label" }, "Донор"),
-      el("div", { class: "dimmed", style: { fontSize: "13px" } }, "Ещё не подобран"),
-    ));
-  }
-
-  // Suggested account
-  if (t.suggested_account && !placement) {
-    card.appendChild(el("div", { class: "muted", style: { fontSize: "12px" } },
-      icon("info", { size: 12 }), " Рекомендуем аккаунт: ",
-      el("span", { class: "mono" }, t.suggested_account.account_username || t.suggested_account.login_email),
-    ));
-  }
-
-  // Credentials (if placement exists and has credentials)
-  if (placement && (placement.login_email || placement.account_username)) {
-    const creds = el("div", { class: "credentials" });
-    if (placement.account_username) creds.appendChild(credRow("Логин", placement.account_username));
-    if (placement.login_email) creds.appendChild(credRow("Email", placement.login_email));
-    if (placement.login_password) creds.appendChild(credRow("Пароль", placement.login_password, true));
-    card.appendChild(creds);
-  }
-
-  // Result url
-  if (placement?.result_url) {
-    card.appendChild(el("div", { class: "donor-row", style: { background: "var(--success-bg)", border: "1px solid var(--success-border)" } },
-      el("div", { class: "anchor-label", style: { color: "var(--success)" } }, "Результат"),
-      el("a", { href: placement.result_url, target: "_blank" }, placement.result_url),
-    ));
-  }
-
-  // Actions
-  const actions = el("div", { class: "actions" });
-  if (!placement) {
-    actions.appendChild(el("button", { onClick: async () => {
-      try { await api.takeTask(t.item_id); toast("Взято в работу", "success"); reload(); }
-      catch (e) { toast(e.message, "error"); }
-    }}, icon("zap", { size: 13 }), el("span", {}, "Взять в работу")));
-  } else if (!isPlaced) {
-    actions.appendChild(el("button", { onClick: () => openPlacedForm(placement, t, reload) },
-      icon("check", { size: 13 }), el("span", {}, "Отметить размещение")));
-    actions.appendChild(el("button", { class: "ghost", onClick: () => openProblemForm(placement, reload) },
-      icon("alert", { size: 13 }), el("span", {}, "Проблема")));
-  } else {
-    actions.appendChild(el("button", { class: "ghost small", onClick: () => openPlacedForm(placement, t, reload) },
-      icon("pencil", { size: 12 }), el("span", {}, "Изменить")));
-  }
-  card.appendChild(actions);
-
-  return card;
-}
-
-function credRow(key, val, masked = false) {
-  let display = val;
-  let shown = !masked;
-  const valEl = el("span", { class: "val" }, masked ? "••••••••" : val);
-  const eye = masked ? el("button", { class: "copy-btn", type: "button", title: "Показать",
-    onClick: () => { shown = !shown; valEl.textContent = shown ? val : "••••••••"; },
-  }, icon("eye", { size: 13 })) : null;
-  const copyBtn = el("button", { class: "copy-btn", type: "button", title: "Скопировать",
-    onClick: async () => {
-      const ok = await copy(val);
-      if (ok) toast("Скопировано", "success");
+  // ----- Result URL input (autosave on Enter / blur) -----
+  const resultInput = el("input", {
+    type: "url",
+    placeholder: placement ? "URL и Enter" : "—",
+    value: placement?.result_url || "",
+    disabled: !placement || isPlaced ? "" : null,
+    style: {
+      fontSize: "12.5px",
+      fontFamily: "var(--mono)",
+      minWidth: "200px",
+      maxWidth: "320px",
     },
-  }, icon("copy", { size: 13 }));
-  return el("div", { class: "cred" },
-    el("span", { class: "key" }, key),
-    valEl,
-    eye,
-    copyBtn,
+    onKeydown: (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        submitResult(e.target.value);
+      }
+    },
+    onBlur: (e) => {
+      // Only save (without finishing) if there is text and status not yet placed.
+      const v = e.target.value.trim();
+      if (!placement || isPlaced || !v || v === (placement.result_url || "")) return;
+      // Just save the URL without changing status (separate API call would be nice; for now we no-op
+      // and require Enter to confirm placement).
+    },
+  });
+
+  async function submitResult(v) {
+    const url = (v || "").trim();
+    if (!url) { toast("Введите ссылку на результат", "error"); return; }
+    try {
+      // Auto-take if not already in progress
+      if (!placement) {
+        const p = await api.takeTask(t.item_id);
+        placement = p;
+      }
+      await api.markPlaced(placement.id, {
+        result_url: url,
+        login_email: placement.login_email || "",
+        login_password: placement.login_password || "",
+        account_username: placement.account_username || t.suggested_account?.account_username || "",
+        comment: placement.comment || "",
+      });
+      toast("Размещение зафиксировано", "success");
+      reload();
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }
+
+  // ----- Account cell -----
+  const accountCell = el("div", { style: { fontSize: "12px", textAlign: "left" } });
+  const accountUser = placement?.account_username || t.suggested_account?.account_username;
+  const accountEmail = placement?.login_email || t.suggested_account?.login_email;
+  const accountPwd = placement?.login_password;
+  if (accountUser || accountEmail) {
+    accountCell.appendChild(el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+      el("span", { class: "mono" }, accountUser || accountEmail),
+      copyMicroBtn(accountUser || accountEmail),
+    ));
+    if (accountEmail && accountUser && accountEmail !== accountUser) {
+      accountCell.appendChild(el("div", { class: "muted mono", style: { fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" } },
+        el("span", {}, accountEmail),
+        copyMicroBtn(accountEmail),
+      ));
+    }
+    if (accountPwd) {
+      accountCell.appendChild(passwordRow(accountPwd));
+    }
+  } else {
+    accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
+  }
+
+  // ----- Actions cell -----
+  const actions = el("div", { class: "row", style: { gap: "4px", justifyContent: "flex-end", flexWrap: "nowrap" } });
+  if (!placement) {
+    actions.appendChild(el("button", { class: "ghost small", title: "Взять в работу",
+      onClick: async () => {
+        try { await api.takeTask(t.item_id); toast("Взято", "success"); reload(); }
+        catch (e) { toast(e.message, "error"); }
+      }
+    }, icon("zap", { size: 12 }), el("span", {}, "Взять")));
+  } else if (!isPlaced) {
+    actions.appendChild(el("button", { class: "ghost small", title: "Отметить размещение (открыть форму с кредами)",
+      onClick: () => openPlacedForm(placement, t, reload),
+    }, icon("check", { size: 12 })));
+    actions.appendChild(el("button", { class: "ghost small", title: "Проблема",
+      onClick: () => openProblemForm(placement, reload),
+    }, icon("alert", { size: 12 })));
+  } else {
+    actions.appendChild(el("button", { class: "subtle small", title: "Изменить",
+      onClick: () => openPlacedForm(placement, t, reload),
+    }, icon("pencil", { size: 12 })));
+  }
+
+  // ----- Donor cell -----
+  const donorCell = donor
+    ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px", justifyContent: "flex-start" } },
+        el("a", { href: donor.donor_url, target: "_blank", class: "mono", style: { fontSize: "12.5px", fontWeight: 500 } }, donor.domain || donor.donor_url),
+        copyMicroBtn(donor.donor_url),
+      )
+    : el("span", { class: "dimmed" }, "не подобран");
+
+  return el("tr", {},
+    el("td", { class: "left compact muted tabular mono", style: { fontSize: "11.5px" } }, String(num)),
+    el("td", { class: "left" },
+      el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+        el("a", { href: t.target_url, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, shortenUrl(t.target_url)),
+        t.target_url && copyMicroBtn(t.target_url),
+      ),
+    ),
+    el("td", { class: "left", style: { maxWidth: "200px" } },
+      t.anchor_text ? el("span", { style: { fontSize: "13px" } }, t.anchor_text) : el("span", { class: "dimmed" }, "—"),
+    ),
+    el("td", { class: "muted", style: { fontSize: "12px" } }, t.geo || el("span", { class: "dimmed" }, "—")),
+    el("td", { class: "muted", style: { fontSize: "12px" } }, t.language || el("span", { class: "dimmed" }, "—")),
+    el("td", {}, t.required_link_type ? el("span", { class: "pill" }, t.required_link_type) : el("span", { class: "dimmed" }, "—")),
+    el("td", { class: "left" }, donorCell),
+    el("td", { class: "left" }, accountCell),
+    el("td", {}, statusPill(t.status)),
+    el("td", { class: "left" }, resultInput),
+    el("td", { class: "right actions" }, actions),
   );
 }
+
+function shortenUrl(url) {
+  if (!url) return "—";
+  try {
+    const u = new URL(url);
+    const path = u.pathname.length > 32 ? u.pathname.slice(0, 30) + "…" : u.pathname;
+    return u.host + path;
+  } catch {
+    return url.length > 48 ? url.slice(0, 46) + "…" : url;
+  }
+}
+
+function copyMicroBtn(text) {
+  return el("button", {
+    class: "subtle icon small",
+    style: { width: "20px", height: "20px", padding: 0, opacity: 0.7 },
+    title: "Скопировать",
+    onClick: async (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const ok = await copy(text);
+      if (ok) toast("Скопировано", "success");
+    },
+  }, icon("copy", { size: 11 }));
+}
+
+function passwordRow(pw) {
+  let shown = false;
+  const span = el("span", { class: "mono", style: { fontSize: "11px" } }, "••••••••");
+  const eye = el("button", {
+    class: "subtle icon small",
+    style: { width: "18px", height: "18px", padding: 0, opacity: 0.7 },
+    title: "Показать пароль",
+    onClick: () => {
+      shown = !shown;
+      span.textContent = shown ? pw : "••••••••";
+    },
+  }, icon(shown ? "eyeOff" : "eye", { size: 10 }));
+  const cp = el("button", {
+    class: "subtle icon small",
+    style: { width: "18px", height: "18px", padding: 0, opacity: 0.7 },
+    title: "Скопировать пароль",
+    onClick: async () => {
+      const ok = await copy(pw);
+      if (ok) toast("Пароль скопирован", "success");
+    },
+  }, icon("copy", { size: 10 }));
+  return el("div", { class: "muted", style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11px" } },
+    span, eye, cp,
+  );
+}
+
+// ----- Detailed forms (kept for credential edits) -----
 
 function openPlacedForm(placement, task, reload) {
   const form = el("form", {});
@@ -219,14 +283,13 @@ function openPlacedForm(placement, task, reload) {
   for (const [name, label, required, value, type] of fields) {
     form.appendChild(el("div", { class: "field" },
       el("label", {}, label),
-      el("input", { name, type, value, required: required ? "" : null })
+      el("input", { name, type, value, required: required ? "" : null }),
     ));
   }
   form.appendChild(el("div", { class: "field" },
     el("label", {}, "Комментарий"),
-    el("textarea", { name: "comment", rows: 2 }, placement.comment || "")
+    el("textarea", { name: "comment", rows: 2 }, placement.comment || ""),
   ));
-
   openModal({
     title: "Отметить размещение",
     content: form,
@@ -236,7 +299,7 @@ function openPlacedForm(placement, task, reload) {
       f.appendChild(el("button", { onClick: async () => {
         const data = {};
         new FormData(form).forEach((v, k) => data[k] = v);
-        try { await api.markPlaced(placement.id, data); toast("Размещение зафиксировано", "success"); closeModal(); reload(); }
+        try { await api.markPlaced(placement.id, data); toast("Сохранено", "success"); closeModal(); reload(); }
         catch (e) { toast(e.message, "error"); }
       }}, "Сохранить"));
       return f;
@@ -248,7 +311,7 @@ function openProblemForm(placement, reload) {
   const form = el("form", {});
   form.appendChild(el("div", { class: "field" },
     el("label", {}, "Что пошло не так?"),
-    el("textarea", { name: "comment", rows: 4, placeholder: "Опишите проблему — она появится в ленте для менеджера" }, placement.comment || "")
+    el("textarea", { name: "comment", rows: 4, placeholder: "Опишите проблему — она появится у менеджера" }, placement.comment || ""),
   ));
   openModal({
     title: "Отметить как проблему",
