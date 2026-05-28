@@ -1,0 +1,16 @@
+.venv
+__pycache__
+*.pyc
+.git
+.gitignore
+.env
+.env.local
+*.db
+*.sqlite*
+.DS_Store
+node_modules
+.idea
+.vscode
+.claude
+build_tz_pdf.py
+TZ_GeneratorProgonov_v2.pdf

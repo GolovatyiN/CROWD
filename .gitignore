@@ -1,0 +1,42 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+
+# Environment / secrets
+.env
+.env.local
+*.local
+.env.production
+backend/.env
+
+# Databases (local SQLite only — Postgres lives in prod)
+*.db
+*.sqlite
+*.sqlite3
+backend/crowd.db
+
+# IDE / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Build artifacts
+node_modules/
+dist/
+build/
+
+# Claude Code
+.claude/
+
+# Cruft from prior work
+TZ_GeneratorProgonov_v2.pdf
+build_tz_pdf.py

@@ -1,0 +1,347 @@
+import { api, auth } from "../api.js";
+import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, searchInput, fmtRelative, sortHeader } from "../components/dom.js";
+import { icon } from "../components/icons.js";
+import { openModal, closeModal } from "../components/modal.js";
+import { toast } from "../components/toast.js";
+
+const ITEM_STATUSES = ["new", "donor_selected", "assigned", "in_progress", "placed", "rejected", "problem", "done"];
+
+export async function renderPlanDetails(host, planId) {
+  const isAdmin = auth.isAdmin();
+  let plan;
+  try { plan = await api.plan(planId); }
+  catch (e) {
+    host.appendChild(emptyState({ iconName: "alert", title: "План не найден", desc: e.message }));
+    return;
+  }
+  let users = [];
+  try { users = await api.users(); } catch { /* employee may not have access */ }
+
+  const state = { q: "", status: "", geo: "", language: "", assigned_to: "", sort: "id", order: "asc" };
+  const selected = new Set();
+
+  const headerActions = el("div", { class: "page-actions" },
+    el("button", { class: "ghost", onClick: () => api.exportPlan(planId) }, icon("download", { size: 14 }), el("span", {}, "Экспорт CSV")),
+  );
+  if (isAdmin) {
+    headerActions.appendChild(el("button", { class: "ghost", onClick: () => openAssign() }, icon("user", { size: 14 }), el("span", {}, "Назначить выбранные")));
+    headerActions.appendChild(el("button", { onClick: async () => {
+      try {
+        const r = await api.autoMatch(planId);
+        toast(`Подобрано: ${r.matched}, проблем: ${r.not_matched}`, "success");
+        load();
+      } catch (e) { toast(e.message, "error"); }
+    }}, icon("zap", { size: 14 }), el("span", {}, "Подобрать доноров")));
+  }
+
+  host.appendChild(el("div", { class: "page-header" },
+    el("div", {},
+      el("div", { class: "row", style: { gap: "8px", alignItems: "center" } },
+        el("a", { href: "#/plans", class: "subtle", style: { display: "inline-flex", padding: "2px" } }, icon("chevronLeft", { size: 16 })),
+        el("div", { class: "page-title" }, plan.plan_name),
+      ),
+      el("div", { class: "page-subtitle" }, `${plan.total_rows} строк · готово ${plan.completed_rows} · в работе ${plan.pending_rows} · проблем ${plan.problem_rows}`),
+    ),
+    headerActions,
+  ));
+
+  // mini stats
+  const stats = el("div", { class: "cards", style: { gridTemplateColumns: "repeat(4, 1fr)", marginBottom: "16px" } });
+  stats.appendChild(miniStat("Всего", plan.total_rows));
+  stats.appendChild(miniStat("Готово", plan.completed_rows, "success"));
+  stats.appendChild(miniStat("В работе", plan.pending_rows, "warning"));
+  stats.appendChild(miniStat("Проблем", plan.problem_rows, "error"));
+  host.appendChild(stats);
+
+  // search + filters
+  const sb = el("div", { class: "search-bar" });
+  sb.appendChild(searchInput({ placeholder: "Поиск по домену, URL, анкору…",
+    onInput: (v) => { state.q = v; debounce(load)(); } }));
+  sb.appendChild(el("button", { class: "ghost", onClick: () => filters.style.display = filters.style.display === "none" ? "" : "none" },
+    icon("filter", { size: 14 }), el("span", {}, "Фильтры")));
+  host.appendChild(sb);
+
+  const filters = el("div", { class: "filters", style: { display: "none", marginBottom: "12px" } },
+    field("Статус", selectInput(state.status, ["", ...ITEM_STATUSES], v => state.status = v, "(все)", STATUS_LABELS)),
+    field("Гео", el("input", { type: "text", onInput: (e) => state.geo = e.target.value })),
+    field("Язык", el("input", { type: "text", onInput: (e) => state.language = e.target.value })),
+    field("Сотрудник", selectUserInput(state.assigned_to, users, v => state.assigned_to = v)),
+    el("button", { onClick: load }, "Применить"),
+  );
+  host.appendChild(filters);
+
+  const wrap = el("div", { class: "table-wrap" });
+  host.appendChild(wrap);
+
+  async function load() {
+    wrap.innerHTML = "";
+    wrap.appendChild(tableSkeleton(8, 8));
+    const params = { sort: state.sort, order: state.order };
+    ["q", "status", "geo", "language", "assigned_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
+    try {
+      const items = await api.planItems(planId, params);
+      renderTable(items);
+    } catch (e) {
+      wrap.innerHTML = "";
+      wrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message }));
+    }
+  }
+
+  function renderTable(items) {
+    wrap.innerHTML = "";
+    if (!items.length) {
+      wrap.appendChild(emptyState({ iconName: "plans", title: "Нет строк", desc: "По выбранным фильтрам строк не найдено." }));
+      return;
+    }
+    const table = el("table");
+    const headerCheckbox = isAdmin ? el("input", { type: "checkbox", onChange: (e) => {
+      selected.clear();
+      if (e.target.checked) items.forEach(i => selected.add(i.id));
+      wrap.querySelectorAll("input.row-check").forEach(c => c.checked = e.target.checked);
+    }}) : "";
+    table.appendChild(el("thead", {}, el("tr", {},
+      el("th", { class: "compact left" }, headerCheckbox),
+      sortHeader("Целевая ссылка", "target_url", state, load, "left"),
+      sortHeader("Анкор", "anchor_text", state, load, "left"),
+      sortHeader("Гео", "geo", state, load),
+      sortHeader("Язык", "language", state, load),
+      sortHeader("Тип", "required_link_type", state, load),
+      sortHeader("Донор", "selected_donor_id", state, load),
+      sortHeader("Сотрудник", "assigned_to", state, load),
+      sortHeader("Статус", "status", state, load),
+      el("th", {}, "Результат"),
+      el("th", { class: "right" }, ""),
+    )));
+    const tbody = el("tbody");
+    items.forEach(i => tbody.appendChild(itemRow(i)));
+    table.appendChild(tbody);
+    wrap.appendChild(table);
+  }
+
+  function itemRow(i) {
+    const assignee = users.find(u => u.id === i.assigned_to);
+    return el("tr", {},
+      el("td", { class: "compact" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
+        if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
+      }}) : ""),
+      el("td", {},
+        el("a", { href: i.target_url || "#", target: "_blank", class: "mono url" }, i.target_url || i.target_domain),
+        i.target_domain && i.target_url && el("div", { class: "muted", style: { fontSize: "11.5px", marginTop: "1px" } }, i.target_domain),
+      ),
+      el("td", { style: { maxWidth: "200px" } }, el("span", { style: { fontSize: "13px" } }, i.anchor_text || el("span", { class: "dimmed" }, "—"))),
+      el("td", { class: "muted", style: { fontSize: "12.5px" } }, i.geo || el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "muted", style: { fontSize: "12.5px" } }, i.language || el("span", { class: "dimmed" }, "—")),
+      el("td", {}, i.required_link_type ? el("span", { class: "pill" }, i.required_link_type) : el("span", { class: "dimmed" }, "—")),
+      el("td", {}, i.selected_donor_id ? el("span", { class: "pill info", style: { fontFamily: "var(--mono)" } }, `#${i.selected_donor_id}`) : el("span", { class: "dimmed" }, "—")),
+      el("td", {}, assignee ? el("span", { style: { fontSize: "13px" } }, assignee.full_name || assignee.email) : el("span", { class: "dimmed" }, "—")),
+      el("td", {}, statusPill(i.status)),
+      el("td", {}, i.result_url ? el("a", { href: i.result_url, target: "_blank", class: "mono url" }, i.result_url) : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "right actions" }, menuButton([
+        isAdmin && { label: "Подобрать автоматически", icon: "zap", onClick: async () => {
+          try { const r = await api.matchOne(i.id); toast(`Подобран донор #${r.donor_id}`, "success"); load(); }
+          catch (e) { toast(e.message, "error"); }
+        }},
+        isAdmin && { label: "Выбрать вручную…", icon: "target", onClick: () => openDonorPicker(i, load) },
+        isAdmin && { label: "Редактировать", icon: "pencil", onClick: () => openItemEditor(i, load, users) },
+        i.target_url && { label: "Открыть target", icon: "external", onClick: () => window.open(i.target_url, "_blank") },
+        i.result_url && { label: "Открыть результат", icon: "external", onClick: () => window.open(i.result_url, "_blank") },
+      ])),
+    );
+  }
+
+  function openAssign() {
+    if (!selected.size) { toast("Сначала выберите строки", "error"); return; }
+    if (!users.length) { toast("Нет доступных сотрудников", "error"); return; }
+    const form = el("form", {});
+    form.appendChild(el("div", { class: "field" },
+      el("label", {}, "Назначить на"),
+      selectUserInput("", users, () => {}, "assigned_to"),
+    ));
+    openModal({
+      title: `Назначить ${selected.size} строк`,
+      content: form,
+      footer: btnRow(
+        el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"),
+        el("button", { onClick: async () => {
+          const userId = parseInt(form.querySelector("[name=assigned_to]").value || 0);
+          if (!userId) { toast("Выберите сотрудника", "error"); return; }
+          try { await api.assign(planId, [...selected], userId); toast("Назначено", "success"); closeModal(); selected.clear(); load(); }
+          catch (e) { toast(e.message, "error"); }
+        }}, "Назначить"),
+      ),
+    });
+  }
+
+  await load();
+}
+
+async function openDonorPicker(item, reload) {
+  const body = el("div", {});
+  body.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px", marginBottom: "10px" } },
+    "Цель: ", el("span", { class: "mono" }, item.target_url || item.target_domain),
+  ));
+  const listWrap = el("div", {});
+  listWrap.innerHTML = `<div style="padding:20px; text-align:center"><span class="spinner"></span></div>`;
+  body.appendChild(listWrap);
+  openModal({ title: "Подобрать донора вручную", content: body, size: "lg" });
+
+  try {
+    const candidates = await api.candidates(item.id, 30);
+    listWrap.innerHTML = "";
+    if (!candidates.length) {
+      listWrap.appendChild(el("div", { class: "empty" },
+        el("div", { class: "icon-circle" }, icon("alert", { size: 20 })),
+        el("div", { class: "title" }, "Подходящих доноров нет"),
+        el("div", { class: "desc" }, "По правилам (гео, язык, тип ссылки, стоп-лист) ничего не нашлось."),
+      ));
+      return;
+    }
+    const table = el("table", { style: { minWidth: "auto" } });
+    table.appendChild(el("thead", {}, el("tr", {},
+      el("th", { class: "left" }, "Domain"),
+      el("th", { class: "right" }, "DR"),
+      el("th", { class: "right" }, "Traffic"),
+      el("th", {}, "GEO"),
+      el("th", {}, "Lang"),
+      el("th", {}, "Type"),
+      el("th", { class: "right" }, "Score"),
+      el("th", { class: "right" }, ""),
+    )));
+    const tbody = el("tbody");
+    candidates.forEach((c, idx) => tbody.appendChild(el("tr", {},
+      el("td", { class: "left" },
+        el("a", { href: c.donor_url.match(/^https?:/) ? c.donor_url : `https://${c.donor_url}`, target: "_blank", class: "mono", style: { fontWeight: idx < 3 ? 600 : 500 } }, c.domain || c.donor_url),
+      ),
+      el("td", { class: "right tabular mono" }, String(c.tr || 0)),
+      el("td", { class: "right tabular mono" }, fmtTraffic(c.organic_traffic)),
+      el("td", {}, c.geo || "—"),
+      el("td", {}, c.language || "—"),
+      el("td", {}, el("span", { class: "pill" }, c.link_type)),
+      el("td", { class: "right tabular mono", style: { color: idx === 0 ? "var(--success)" : "inherit" } }, String(c.score)),
+      el("td", { class: "right" },
+        el("button", { class: "small", onClick: async () => {
+          try {
+            await api.setDonor(item.id, c.id);
+            toast(`Назначен: ${c.domain || c.donor_url}`, "success");
+            closeModal();
+            reload();
+          } catch (e) { toast(e.message, "error"); }
+        }}, "Выбрать"),
+      ),
+    )));
+    table.appendChild(tbody);
+    listWrap.appendChild(el("div", { class: "table-wrap" }, table));
+  } catch (e) {
+    listWrap.innerHTML = "";
+    listWrap.appendChild(el("div", { class: "empty" },
+      el("div", { class: "icon-circle" }, icon("alert", { size: 20 })),
+      el("div", { class: "title" }, "Ошибка"),
+      el("div", { class: "desc" }, e.message),
+    ));
+  }
+}
+
+function fmtTraffic(n) {
+  if (!n) return "0";
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1000) return (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "k";
+  return String(n);
+}
+
+function openItemEditor(item, reload, users) {
+  const form = el("form", {});
+  const labels = {
+    target_url: "Целевая ссылка",
+    anchor_text: "Анкор",
+    geo: "Гео",
+    language: "Язык",
+    required_link_type: "Тип ссылки",
+    comment: "Комментарий",
+  };
+  Object.entries(labels).forEach(([k, label]) =>
+    form.appendChild(el("div", { class: "field" }, el("label", {}, label), el("input", { name: k, type: "text", value: item[k] || "" }))));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "ID выбранного донора"),
+    el("input", { name: "selected_donor_id", type: "number", value: item.selected_donor_id || "" })));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Назначен на"),
+    selectUserInput(String(item.assigned_to || ""), users, () => {}, "assigned_to")));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Статус"),
+    selectInput(item.status, ITEM_STATUSES, () => {}, null, STATUS_LABELS, "status")));
+
+  openModal({
+    title: "Редактирование строки",
+    content: form,
+    footer: btnRow(
+      el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"),
+      el("button", { onClick: async () => {
+        const data = {};
+        new FormData(form).forEach((v, k) => data[k] = v);
+        data.selected_donor_id = data.selected_donor_id ? parseInt(data.selected_donor_id) : null;
+        data.assigned_to = data.assigned_to ? parseInt(data.assigned_to) : null;
+        try { await api.updateItem(item.id, data); toast("Сохранено", "success"); closeModal(); reload(); }
+        catch (e) { toast(e.message, "error"); }
+      }}, "Сохранить"),
+    ),
+  });
+}
+
+function miniStat(label, value, tint) {
+  return el("div", { class: "stat-card" },
+    el("div", { class: "label" }, label),
+    el("div", { class: "value tabular", style: tint ? { color: `var(--${tint})` } : null }, String(value)),
+  );
+}
+
+function field(label, input) {
+  return el("div", { class: "field", style: { marginBottom: 0 } }, el("label", {}, label), input);
+}
+
+function selectInput(value, options, onChange, emptyLabel, labels, name) {
+  const sel = document.createElement("select");
+  if (name) sel.name = name;
+  sel.addEventListener("change", (e) => onChange && onChange(e.target.value));
+  options.forEach(o => {
+    const opt = document.createElement("option");
+    opt.value = o;
+    if (o === value) opt.selected = true;
+    if (!o) opt.textContent = emptyLabel || "(любой)";
+    else if (labels && labels[o]) opt.textContent = labels[o];
+    else opt.textContent = o;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
+function selectUserInput(value, users, onChange, name) {
+  const sel = document.createElement("select");
+  if (name) sel.name = name;
+  sel.addEventListener("change", (e) => onChange && onChange(e.target.value));
+  const empty = document.createElement("option");
+  empty.value = ""; empty.textContent = "(все)";
+  if (!value) empty.selected = true;
+  sel.appendChild(empty);
+  users.filter(u => u.is_active).forEach(u => {
+    const opt = document.createElement("option");
+    opt.value = String(u.id);
+    opt.textContent = u.full_name || u.email;
+    if (String(u.id) === String(value)) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  return sel;
+}
+
+function btnRow(...buttons) {
+  const r = document.createElement("div");
+  r.className = "row";
+  r.style.justifyContent = "flex-end";
+  r.style.gap = "8px";
+  buttons.forEach(b => r.appendChild(b));
+  return r;
+}
+
+const _timers = new WeakMap();
+function debounce(fn, ms = 250) {
+  return (...args) => {
+    clearTimeout(_timers.get(fn));
+    _timers.set(fn, setTimeout(() => fn(...args), ms));
+  };
+}

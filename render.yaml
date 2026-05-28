@@ -1,0 +1,21 @@
+# Alternative to Railway — deploy with one click via Render's GitHub integration.
+# Free tier sleeps after 15min of inactivity; for daily use, pick Starter ($7/mo)
+# or stay on Railway.
+services:
+  - type: web
+    name: crowd
+    runtime: docker
+    region: frankfurt
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false   # set manually to your Neon URL
+      - key: ADMIN_EMAIL
+        value: admin@crowd.local
+      - key: ADMIN_PASSWORD
+        sync: false   # set manually — do not commit
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: "1440"
