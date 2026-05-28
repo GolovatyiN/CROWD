@@ -1,3 +1,6 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Depends
@@ -8,10 +11,50 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.gzip import GZipMiddleware
 
-from .database import get_db
+from .database import SessionLocal, get_db
 from .routes import anchor_plans, auth, dashboard, donors, placements, stop_list, users
 
-app = FastAPI(title="Crowd", version="0.1.0")
+log = logging.getLogger("crowd.heartbeat")
+
+# Neon free tier suspends compute after 5 minutes of inactivity, and waking
+# it up costs 1-3 seconds on the first request. We ping every 4 minutes to
+# keep it warm — much cheaper than the per-user cold start.
+NEON_HEARTBEAT_INTERVAL = 240  # seconds
+
+
+async def neon_heartbeat() -> None:
+    while True:
+        try:
+            await asyncio.sleep(NEON_HEARTBEAT_INTERVAL)
+            await asyncio.to_thread(_ping_db)
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:  # noqa: BLE001 — we want to keep looping no matter what
+            log.warning("heartbeat ping failed: %s", exc)
+
+
+def _ping_db() -> None:
+    db = SessionLocal()
+    try:
+        db.execute(text("SELECT 1"))
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = asyncio.create_task(neon_heartbeat())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
+app = FastAPI(title="Crowd", version="0.1.0", lifespan=lifespan)
 
 # Compress all JSON / HTML / CSS / JS payloads. Cheap and big win on slow networks.
 app.add_middleware(GZipMiddleware, minimum_size=512)
