@@ -20,10 +20,14 @@ async function request(path, opts = {}) {
   const body = opts.body instanceof FormData ? opts.body : (opts.body ? JSON.stringify(opts.body) : undefined);
 
   const res = await fetch(path, { method: opts.method || "GET", headers, body });
-  if (res.status === 401) {
+  // 401 from /auth/login means wrong credentials — let the normal error
+  // handling below surface the server's detail message ("Неверный email или
+  // пароль"). For everything else, a 401 means the session died: clear local
+  // state and bounce to login.
+  if (res.status === 401 && path !== "/auth/login") {
     auth.clearToken();
     if (location.hash !== "#/login") location.hash = "#/login";
-    throw new Error("Unauthorized");
+    throw new Error("Сессия истекла");
   }
   const ct = res.headers.get("content-type") || "";
   if (!res.ok) {
