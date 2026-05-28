@@ -17,7 +17,7 @@ export async function renderPlanDetails(host, planId) {
   let users = [];
   try { users = await api.users(); } catch { /* employee may not have access */ }
 
-  const state = { q: "", status: "", geo: "", language: "", assigned_to: "", sort: "id", order: "asc" };
+  const state = { q: "", status: "", geo: "", language: "", assigned_to: "", sort: "id", order: "asc", hide_done: false };
   const selected = new Set();
 
   const headerActions = el("div", { class: "page-actions" },
@@ -57,6 +57,12 @@ export async function renderPlanDetails(host, planId) {
   const sb = el("div", { class: "search-bar" });
   sb.appendChild(searchInput({ placeholder: "Поиск по домену, URL, анкору…",
     onInput: (v) => { state.q = v; debounce(load)(); } }));
+  const hideDoneBtn = el("button", { class: "ghost", onClick: () => {
+    state.hide_done = !state.hide_done;
+    hideDoneBtn.classList.toggle("ghost", !state.hide_done);
+    load();
+  }}, icon("eyeOff", { size: 14 }), el("span", {}, "Скрыть готовые"));
+  sb.appendChild(hideDoneBtn);
   sb.appendChild(el("button", { class: "ghost", onClick: () => filters.style.display = filters.style.display === "none" ? "" : "none" },
     icon("filter", { size: 14 }), el("span", {}, "Фильтры")));
   host.appendChild(sb);
@@ -79,7 +85,10 @@ export async function renderPlanDetails(host, planId) {
     const params = { sort: state.sort, order: state.order };
     ["q", "status", "geo", "language", "assigned_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
-      const items = await api.planItems(planId, params);
+      let items = await api.planItems(planId, params);
+      if (state.hide_done) {
+        items = items.filter(i => !["placed", "done"].includes(i.status));
+      }
       renderTable(items);
     } catch (e) {
       wrap.innerHTML = "";
@@ -120,7 +129,12 @@ export async function renderPlanDetails(host, planId) {
 
   function itemRow(i) {
     const assignee = users.find(u => u.id === i.assigned_to);
-    return el("tr", {},
+    // Visual treatment for row state — fade out anything the user no longer
+    // needs to act on, so the live workload stands out.
+    let rowStyle = null;
+    if (i.status === "placed" || i.status === "done") rowStyle = { opacity: 0.35 };
+    else if (i.status === "assigned" || i.status === "in_progress") rowStyle = { opacity: 0.6 };
+    return el("tr", { style: rowStyle },
       el("td", { class: "compact" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
         if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
       }}) : ""),

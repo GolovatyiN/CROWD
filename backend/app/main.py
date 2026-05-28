@@ -1,11 +1,13 @@
 import asyncio
 import logging
+import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -13,6 +15,10 @@ from starlette.middleware.gzip import GZipMiddleware
 
 from .database import SessionLocal, get_db
 from .routes import anchor_plans, auth, dashboard, donors, placements, stop_list, users
+
+# Identifies this exact process instance so we can cache-bust the entrypoint
+# bundle. Changes on every deploy / restart.
+BUILD_ID = str(int(time.time()))
 
 log = logging.getLogger("crowd.heartbeat")
 
@@ -100,26 +106,35 @@ class CachedStaticFiles(StaticFiles):
         return response
 
 
+def _render_index() -> HTMLResponse:
+    """Read the SPA shell and rewrite every relative import to include a
+    `?v=BUILD_ID` query string. That forces browsers to re-fetch JS/CSS on
+    every deploy without giving up the Last-Modified 304 round-trip for
+    unchanged static files.
+    """
+    index = FRONTEND_DIR / "index.html"
+    if not index.exists():
+        return JSONResponse({"detail": "frontend not built"}, status_code=404)
+    html = index.read_text(encoding="utf-8")
+    # Append ?v=BUILD_ID to <script src=...> and <link href=...> for /static/ assets.
+    def _stamp(match):
+        attr, url = match.group(1), match.group(2)
+        sep = "&" if "?" in url else "?"
+        return f'{attr}="{url}{sep}v={BUILD_ID}"'
+    html = re.sub(r'(src|href)="(/static/[^"#?]+(?:\?[^"]*)?)"', _stamp, html)
+    return HTMLResponse(html, headers={"Cache-Control": "no-cache"})
+
+
 if FRONTEND_DIR.exists():
     app.mount("/static", CachedStaticFiles(directory=str(FRONTEND_DIR)), name="static")
 
     @app.get("/")
     def root_index():
-        index = FRONTEND_DIR / "index.html"
-        if index.exists():
-            return FileResponse(
-                str(index),
-                # Always revalidate the entrypoint so users see new builds immediately.
-                headers={"Cache-Control": "no-cache"},
-            )
-        return JSONResponse({"detail": "frontend not built"}, status_code=404)
+        return _render_index()
 
     @app.get("/{path:path}")
     def spa_fallback(path: str):
         candidate = FRONTEND_DIR / path
         if candidate.exists() and candidate.is_file():
             return FileResponse(str(candidate))
-        index = FRONTEND_DIR / "index.html"
-        if index.exists():
-            return FileResponse(str(index), headers={"Cache-Control": "no-cache"})
-        return JSONResponse({"detail": "not found"}, status_code=404)
+        return _render_index()
