@@ -198,13 +198,21 @@ function taskRow(t, num, reload) {
       )
     : el("span", { class: "dimmed" }, "не подобран");
 
+  const displayTarget = t.target_url || t.target_domain || "";
   return el("tr", {},
     el("td", { class: "left compact muted tabular mono", style: { fontSize: "11.5px" } }, String(num)),
     el("td", { class: "left" },
-      el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
-        el("a", { href: t.target_url, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, shortenUrl(t.target_url)),
-        t.target_url && copyMicroBtn(t.target_url),
-      ),
+      displayTarget
+        ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+            el("a", {
+              href: displayTarget.startsWith("http") ? displayTarget : "https://" + displayTarget,
+              target: "_blank",
+              class: "mono",
+              style: { fontSize: "12.5px" },
+            }, shortenUrl(displayTarget)),
+            copyMicroBtn(displayTarget),
+          )
+        : el("span", { class: "dimmed" }, "—"),
     ),
     el("td", { class: "left", style: { maxWidth: "200px" } },
       t.anchor_text ? el("span", { style: { fontSize: "13px" } }, t.anchor_text) : el("span", { class: "dimmed" }, "—"),
