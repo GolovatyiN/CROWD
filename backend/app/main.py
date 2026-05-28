@@ -88,13 +88,15 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend"
 
 
 class CachedStaticFiles(StaticFiles):
-    """Mostly-immutable assets — JS modules, CSS, fonts. Cache aggressively."""
+    """Always revalidate with the server — Starlette ships Last-Modified, so the
+    server returns 304 Not Modified for unchanged files. Bandwidth-cheap, and
+    avoids the "user is stuck on yesterday's JS after a deploy" trap.
+    """
 
     async def get_response(self, path: str, scope):
         response = await super().get_response(path, scope)
         if response.status_code == 200:
-            # 1 day in browser, 1 day on shared cache; static assets rarely change.
-            response.headers["Cache-Control"] = "public, max-age=86400, must-revalidate"
+            response.headers["Cache-Control"] = "no-cache"
         return response
 
 
