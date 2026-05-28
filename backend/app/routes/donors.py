@@ -291,11 +291,19 @@ async def import_donors_route(
     user: User = Depends(require_admin),
 ):
     content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Файл пустой")
     try:
         result = import_donors(db, content, file.filename or "donors", user.id)
+        db.commit()
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-    db.commit()
+    except Exception as e:
+        db.rollback()
+        # Surface the underlying error rather than letting it become a 500.
+        msg = str(e).splitlines()[0][:300] if str(e) else type(e).__name__
+        raise HTTPException(status_code=400, detail=f"Не удалось обработать файл: {msg}")
     return result
 
 

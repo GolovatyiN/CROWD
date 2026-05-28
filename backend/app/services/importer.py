@@ -15,6 +15,7 @@ import re
 from typing import Iterable, Optional
 
 import pandas as pd
+from sqlalchemy.exc import IntegrityError, DataError
 from sqlalchemy.orm import Session
 
 from ..models import (
@@ -125,35 +126,42 @@ def import_donors(db: Session, file_bytes: bytes, filename: str, user_id: Option
     inserted = updated = skipped = failed = 0
 
     if "donor_url" not in df.columns:
-        raise ValueError("В файле нет обязательной колонки 'donor_url' (или url/site/website)")
+        raise ValueError("В файле нет обязательной колонки 'donor_url' (или url/site/website/domain)")
 
     seen_in_file: set[str] = set()
+    pending = 0
+    BATCH = 200  # flush every N rows so a single bad row can't poison thousands
+
     for idx, row in df.iterrows():
         url = _to_str(row.get("donor_url"))
         if not url:
             failed += 1
             errors.append({"row": int(idx) + 2, "error": "пустой donor_url"})
             continue
+        # Truncate to fit VARCHAR(512) on Postgres
+        if len(url) > 512:
+            url = url[:512]
         if url in seen_in_file:
             skipped += 1
             continue
         seen_in_file.add(url)
 
-        existing = db.query(Donor).filter(Donor.donor_url == url).one_or_none()
+        link_type = (_to_str(row.get("link_type")) or "unknown").lower()[:32]
         payload = dict(
             donor_url=url,
-            domain=extract_domain(url),
+            domain=extract_domain(url)[:255],
             tr=_to_float(row.get("tr")),
             organic_traffic=_to_int(row.get("organic_traffic")),
             ref_domains=_to_int(row.get("ref_domains")),
             backlinks=_to_int(row.get("backlinks")),
-            geo=_to_str(row.get("geo")),
-            language=_to_str(row.get("language")),
-            link_type=(_to_str(row.get("link_type")) or "unknown").lower(),
-            category=_to_str(row.get("category")),
+            geo=_to_str(row.get("geo"))[:64],
+            language=_to_str(row.get("language"))[:64],
+            link_type=link_type,
+            category=_to_str(row.get("category"))[:128],
             comment=_to_str(row.get("comment")),
         )
         try:
+            existing = db.query(Donor).filter(Donor.donor_url == url).one_or_none()
             if existing:
                 for k, v in payload.items():
                     setattr(existing, k, v)
@@ -162,9 +170,28 @@ def import_donors(db: Session, file_bytes: bytes, filename: str, user_id: Option
                 d = Donor(added_by=user_id, **payload)
                 db.add(d)
                 inserted += 1
+            pending += 1
+            if pending >= BATCH:
+                try:
+                    db.flush()
+                    pending = 0
+                except (IntegrityError, DataError) as e:
+                    db.rollback()
+                    failed += pending
+                    errors.append({"row": int(idx) + 2, "error": f"батч сброшен: {str(e.orig)[:150]}"})
+                    pending = 0
         except Exception as e:
+            db.rollback()
             failed += 1
             errors.append({"row": int(idx) + 2, "error": str(e)[:200]})
+    # Final flush
+    if pending:
+        try:
+            db.flush()
+        except (IntegrityError, DataError) as e:
+            db.rollback()
+            failed += pending
+            errors.append({"row": "finalize", "error": str(e.orig)[:200]})
 
     log = ImportLog(
         type="donors",
