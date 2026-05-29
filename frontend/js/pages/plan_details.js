@@ -50,12 +50,17 @@ export async function renderPlanDetails(host, planId) {
         if (!r.considered) {
           toast("Нет строк, требующих подбора — у всех уже есть донор", "warning");
         } else if (!r.matched) {
-          toast(`Рассмотрено ${r.considered}, подходящих доноров не нашлось (гео/язык/тип/стоп-лист)`, "error");
+          toast(`Рассмотрено ${r.considered}, подходящих доноров не нашлось`, "error");
+        } else if (r.not_matched) {
+          toast(`Подобрано: ${r.matched} из ${r.considered}, проблем: ${r.not_matched} — нажмите статус "Проблема" чтобы узнать причину`, "success");
         } else {
-          toast(`Подобрано: ${r.matched} из ${r.considered}${r.not_matched ? `, проблем: ${r.not_matched}` : ""}`, "success");
+          toast(`Подобрано: ${r.matched} из ${r.considered}`, "success");
         }
         load();
       }));
+
+    headerActions.appendChild(el("button", { class: "subtle", title: "Сводка по донорам", onClick: showDonorStats },
+      icon("info", { size: 14 })));
   }
 
   // Wraps an async click handler with disabled-state + spinner + replaces label
@@ -197,7 +202,7 @@ export async function renderPlanDetails(host, planId) {
       el("td", {}, assignee
         ? el("span", { style: { fontSize: "13px" } }, assignee.name || assignee.full_name || assignee.email)
         : el("span", { class: "dimmed" }, "—")),
-      el("td", {}, statusPill(i.status)),
+      el("td", {}, statusCellWithReason(i)),
       el("td", {}, i.result_url ? el("a", { href: i.result_url, target: "_blank", class: "mono url" }, i.result_url) : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "right actions" }, menuButton([
         isAdmin && { label: "Подобрать автоматически", icon: "zap", onClick: async () => {
@@ -240,6 +245,15 @@ export async function renderPlanDetails(host, planId) {
 
 // ---- Inline cells ----
 
+function statusCellWithReason(item) {
+  const pill = statusPill(item.status);
+  if ((item.status === "problem" || item.status === "rejected") && item.comment) {
+    pill.title = item.comment;
+    pill.style.cursor = "help";
+  }
+  return pill;
+}
+
 function paramsBlock(geo, lang, type) {
   const parts = [];
   if (geo) parts.push(geo);
@@ -273,6 +287,49 @@ function donorBlock(donor) {
   if (meta.length) metaRow.appendChild(el("span", { class: "muted" }, meta.join(" · ")));
   if (donor.link_type) metaRow.appendChild(el("span", { class: `pill ${linkClass}`, style: { fontSize: "10px" } }, donor.link_type));
   wrap.appendChild(metaRow);
+  return wrap;
+}
+
+async function showDonorStats() {
+  const body = el("div", {});
+  body.innerHTML = `<div style="padding:20px; text-align:center"><span class="spinner"></span></div>`;
+  const modal = openModal({ title: "Сводка по базе доноров", content: body, size: "lg" });
+  try {
+    const s = await api.donorStats();
+    body.innerHTML = "";
+    body.appendChild(el("div", { class: "muted", style: { marginBottom: "12px" } },
+      `Всего активных доноров: ${s.active} из ${s.total}`));
+    body.appendChild(distributionBlock("По GEO", s.by_geo, 12));
+    body.appendChild(distributionBlock("По языку", s.by_language, 12));
+    body.appendChild(distributionBlock("По типу ссылки", s.by_link_type, 8));
+  } catch (e) {
+    body.innerHTML = "";
+    body.appendChild(el("div", { class: "empty" }, "Ошибка: " + e.message));
+  }
+}
+
+function distributionBlock(title, rows, limit = 10) {
+  const wrap = el("div", { style: { marginBottom: "16px" } });
+  wrap.appendChild(el("div", { class: "panel-title", style: { marginBottom: "8px" } }, title));
+  if (!rows.length) {
+    wrap.appendChild(el("div", { class: "dimmed" }, "—"));
+    return wrap;
+  }
+  const max = rows[0].count || 1;
+  const list = el("div", {});
+  rows.slice(0, limit).forEach(r => {
+    const pct = Math.round((r.count / max) * 100);
+    list.appendChild(el("div", { class: "row", style: { gap: "10px", padding: "4px 0" } },
+      el("div", { class: "mono", style: { width: "120px", fontSize: "12.5px" } }, r.key),
+      el("div", { class: "progress", style: { flex: 1 } }, el("div", { class: "bar", style: { width: `${pct}%` } })),
+      el("div", { class: "mono tabular muted", style: { width: "70px", textAlign: "right", fontSize: "12px" } }, String(r.count)),
+    ));
+  });
+  if (rows.length > limit) {
+    list.appendChild(el("div", { class: "muted", style: { fontSize: "12px", marginTop: "6px" } },
+      `и ещё ${rows.length - limit} групп`));
+  }
+  wrap.appendChild(list);
   return wrap;
 }
 

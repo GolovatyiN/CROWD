@@ -71,6 +71,7 @@ export const api = {
   bulkDeactivateDonors: (ids) => request("/donors/bulk-deactivate", { method: "POST", body: { ids } }),
   bulkActivateDonors: (ids) => request("/donors/bulk-activate", { method: "POST", body: { ids } }),
   donorUsage: (id) => request(`/donors/${id}/usage`),
+  donorStats: () => request(`/donors/stats`),
   donorAccounts: (id) => request(`/donors/${id}/accounts`),
   createDonorAccount: (id, data) => request(`/donors/${id}/accounts`, { method: "POST", body: { ...data, donor_id: id } }),
   updateDonorAccount: (donorId, accId, data) => request(`/donors/${donorId}/accounts/${accId}`, { method: "PATCH", body: data }),

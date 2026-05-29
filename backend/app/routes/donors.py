@@ -20,6 +20,7 @@ from ..schemas import (
 )
 from ..services.importer import donors_to_csv, import_donors
 from ..services.matcher import account_usage, extract_domain
+from ..services.geo import normalize_country, normalize_language
 
 router = APIRouter(prefix="/donors", tags=["donors"])
 
@@ -172,6 +173,40 @@ def bulk_activate(payload: dict = Body(...), db: Session = Depends(get_db), _: U
     updated = db.query(Donor).filter(Donor.id.in_(ids)).update({Donor.is_active: True}, synchronize_session=False)
     db.commit()
     return {"updated": updated}
+
+
+@router.get("/stats")
+def donors_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+    """Quick health-check of the donor pool — counts per GEO / language /
+    link_type. Helps the admin see why the matcher might say 'no GEO=SK
+    donors': they can verify their base really has no Slovak donors.
+    """
+    total = db.query(func.count(Donor.id)).scalar() or 0
+    active = db.query(func.count(Donor.id)).filter(Donor.is_active.is_(True)).scalar() or 0
+
+    # Build distributions with the same normalisation the matcher uses.
+    geo_counts: dict[str, int] = {}
+    lang_counts: dict[str, int] = {}
+    link_counts: dict[str, int] = {}
+    rows = db.query(Donor.geo, Donor.language, Donor.link_type).filter(Donor.is_active.is_(True)).all()
+    for g, l, t in rows:
+        gn = normalize_country(g or "") or "(не указано)"
+        ln = normalize_language(l or "") or "(не указано)"
+        tn = (t or "unknown").lower()
+        geo_counts[gn] = geo_counts.get(gn, 0) + 1
+        lang_counts[ln] = lang_counts.get(ln, 0) + 1
+        link_counts[tn] = link_counts.get(tn, 0) + 1
+
+    def sort_dict(d: dict[str, int]) -> list[dict]:
+        return [{"key": k, "count": v} for k, v in sorted(d.items(), key=lambda kv: kv[1], reverse=True)]
+
+    return {
+        "total": total,
+        "active": active,
+        "by_geo": sort_dict(geo_counts),
+        "by_language": sort_dict(lang_counts),
+        "by_link_type": sort_dict(link_counts),
+    }
 
 
 @router.get("/{donor_id}/usage")

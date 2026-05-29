@@ -245,25 +245,37 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
 
         best = None
         best_score = -1.0
+        # Track how many donors were dropped by each filter so we can tell
+        # the user which dimension actually blocked the match.
+        dropped_link = dropped_geo = dropped_lang = 0
+        passed_filters = 0
         for d in donor_records:
             if d["id"] in used_ids:
                 continue
             if d["donor_url"] in blocked_urls:
                 continue
             if require_lt and d["link_type"] != req_lt and d["link_type"] != "mixed":
+                dropped_link += 1
                 continue
             if item_geo and d["geo_norm"] and d["geo_norm"] != item_geo:
+                dropped_geo += 1
                 continue
             if item_lang and d["lang_norm"] and d["lang_norm"] != item_lang:
+                dropped_lang += 1
                 continue
+            passed_filters += 1
             if d["score"] > best_score:
                 best = d
                 best_score = d["score"]
 
         if best is None:
             item.status = "problem"
-            if not item.comment:
-                item.comment = "Подходящий донор не найден (гео / язык / тип ссылки / стоп-лист)"
+            item.comment = _explain_no_match(
+                item_geo, item_lang, req_lt,
+                dropped_link, dropped_geo, dropped_lang,
+                used_ids_count=len(used_ids),
+                pool_size=len(donor_records),
+            )
             problem_items.append(item.id)
             continue
 
@@ -290,6 +302,35 @@ def account_usage(db: Session, donor_id: int) -> dict[int, int]:
         .group_by(Placement.donor_account_id)
     ).all()
     return {acc_id: cnt for acc_id, cnt in rows if acc_id is not None}
+
+
+def _explain_no_match(
+    item_geo: str, item_lang: str, req_lt: str,
+    dropped_link: int, dropped_geo: int, dropped_lang: int,
+    *, used_ids_count: int, pool_size: int,
+) -> str:
+    """Compose a human-friendly comment explaining what blocked the match.
+
+    The biggest "dropped_X" tells us which filter ate the candidates. If a
+    filter dropped *everything*, we name the constraint directly.
+    """
+    if pool_size == 0:
+        return "В базе нет активных доноров"
+    parts = []
+    if item_geo and dropped_geo and dropped_geo >= max(dropped_link, dropped_lang):
+        parts.append(f"в базе нет активных доноров с GEO={item_geo}")
+    elif item_lang and dropped_lang and dropped_lang >= max(dropped_link, dropped_geo):
+        parts.append(f"в базе нет активных доноров с языком={item_lang}")
+    elif req_lt and dropped_link and dropped_link >= max(dropped_geo, dropped_lang):
+        parts.append(f"в базе нет доноров с типом ссылки={req_lt}")
+    if not parts:
+        # Pool exists but everything got filtered by combined constraints, or
+        # all remaining donors are already used for this target.
+        if used_ids_count:
+            parts.append(f"все подходящие доноры ({used_ids_count}) уже привязаны к этой цели")
+        else:
+            parts.append("подходящих доноров не найдено по совокупности фильтров")
+    return "Подбор: " + "; ".join(parts)
 
 
 def suggest_account(db: Session, donor_id: int) -> Optional[DonorAccount]:
