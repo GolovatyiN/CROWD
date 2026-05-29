@@ -52,28 +52,36 @@ def run() -> None:
     db = SessionLocal()
     seed_demo = os.environ.get("SEED_DEMO", "1") == "1"
     try:
-        # Admin
-        if not db.query(User).filter(User.email == settings.admin_email).first():
+        # Bootstrap super-admin. On first run creates it; on subsequent runs
+        # makes sure the seeded admin keeps the highest role so the system
+        # always has a way back in.
+        bootstrap = db.query(User).filter(User.email == settings.admin_email).first()
+        if not bootstrap:
             db.add(User(
                 email=settings.admin_email,
                 full_name=settings.admin_name,
-                role="admin",
+                role="super_admin",
                 password_hash=hash_password(settings.admin_password),
                 is_active=True,
             ))
+        else:
+            if bootstrap.role != "super_admin":
+                bootstrap.role = "super_admin"
+            if not bootstrap.is_active:
+                bootstrap.is_active = True
         db.commit()
 
         if not seed_demo:
             print(f"Seed OK (admin only). Login: {settings.admin_email}")
             return
 
-        # Employees
+        # Demo users (role 'user')
         for email, name in DEMO_EMPLOYEES:
             if not db.query(User).filter(User.email == email).first():
                 db.add(User(
                     email=email,
                     full_name=name,
-                    role="employee",
+                    role="user",
                     password_hash=hash_password("employee123"),
                     is_active=True,
                 ))

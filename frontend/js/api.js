@@ -7,7 +7,10 @@ export const auth = {
   clearToken() { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(USER_KEY); },
   getUser() { try { return JSON.parse(localStorage.getItem(USER_KEY) || "null"); } catch { return null; } },
   setUser(u) { localStorage.setItem(USER_KEY, JSON.stringify(u)); },
-  isAdmin() { const u = this.getUser(); return u && u.role === "admin"; },
+  role() { const u = this.getUser(); return u ? u.role : null; },
+  isAdmin() { const r = this.role(); return r === "admin" || r === "super_admin"; },
+  isSuperAdmin() { return this.role() === "super_admin"; },
+  isUser() { return this.role() === "user"; },
 };
 
 async function request(path, opts = {}) {
@@ -56,6 +59,9 @@ export const api = {
   createUser: (data) => request("/users", { method: "POST", body: data }),
   updateUser: (id, data) => request(`/users/${id}`, { method: "PATCH", body: data }),
   deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
+
+  // audit
+  auditLogs: (params = {}) => request(`/audit-logs?${qs(params)}`),
 
   // donors — paginated
   donors: (params = {}) => request(`/donors?${qs(params)}`),

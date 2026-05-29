@@ -169,3 +169,22 @@ class ImportLog(Base):
     errors_json: Mapped[str] = mapped_column(Text, default="[]")
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class AuditLog(Base):
+    """Append-only journal of sensitive admin actions.
+
+    Currently scoped to user management — role changes, activation toggles,
+    password resets, etc. Easy to widen later to donors / plans if needed.
+    """
+    __tablename__ = "audit_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    actor_email: Mapped[str] = mapped_column(String(255), default="")
+    action: Mapped[str] = mapped_column(String(64), index=True)  # user.create, user.role_change, ...
+    target_type: Mapped[str] = mapped_column(String(32), default="user")
+    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    target_label: Mapped[str] = mapped_column(String(255), default="")
+    details: Mapped[str] = mapped_column(Text, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)

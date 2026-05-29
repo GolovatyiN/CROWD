@@ -49,7 +49,12 @@ const STATUS_CLASS = {
   active: "success",
 };
 
-export const ROLE_LABELS = { admin: "Админ", employee: "Сотрудник" };
+export const ROLE_LABELS = {
+  super_admin: "Super Admin",
+  admin: "Админ",
+  user: "Сотрудник",
+  employee: "Сотрудник", // legacy fallback for any rows that escape the migration
+};
 
 export function statusPill(status) {
   return el("span", { class: `pill ${STATUS_CLASS[status] || ""}` }, STATUS_LABELS[status] || status || "—");

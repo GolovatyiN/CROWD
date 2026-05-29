@@ -55,7 +55,19 @@ def get_current_user(
     return user
 
 
+ADMIN_ROLES = ("admin", "super_admin")
+ALL_ROLES = ("user", "admin", "super_admin")
+
+
 def require_admin(user: User = Depends(get_current_user)) -> User:
-    if user.role != "admin":
+    """Admin OR Super Admin — typical day-to-day management actions."""
+    if user.role not in ADMIN_ROLES:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступно только администратору")
+    return user
+
+
+def require_super_admin(user: User = Depends(get_current_user)) -> User:
+    """Super-Admin only — user management, role changes, audit log."""
+    if user.role != "super_admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступно только Super Admin")
     return user
