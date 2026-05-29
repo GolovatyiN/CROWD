@@ -162,12 +162,11 @@ export async function renderPlanDetails(host, planId) {
     table.appendChild(el("thead", {}, el("tr", {},
       el("th", { class: "compact left" }, headerCheckbox),
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
-      sortHeader("Анкор", "anchor_text", state, load, "left"),
       el("th", { class: "left" }, "Параметры"),
       el("th", { class: "left" }, "Донор"),
-      sortHeader("Сотрудник", "assigned_to", state, load),
+      sortHeader("Сотрудник", "assigned_to", state, load, "left"),
       sortHeader("Статус", "status", state, load),
-      el("th", {}, "Результат"),
+      el("th", { class: "left" }, "Результат"),
       el("th", { class: "right" }, ""),
     )));
     const tbody = el("tbody");
@@ -188,22 +187,21 @@ export async function renderPlanDetails(host, planId) {
     const targetHref = targetText.startsWith("http") ? targetText : (targetText ? "https://" + targetText : "#");
 
     return el("tr", { style: rowStyle },
-      el("td", { class: "compact" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
+      el("td", { class: "compact left" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
         if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
       }}) : ""),
-      el("td", { class: "left" }, targetText
+      el("td", { class: "left truncate", title: targetText }, targetText
         ? el("a", { href: targetHref, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, targetText)
-        : el("span", { class: "dimmed" }, "—")),
-      el("td", { class: "left", style: { maxWidth: "200px" } }, i.anchor_text
-        ? el("span", { style: { fontSize: "13px" } }, i.anchor_text)
         : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left" }, paramsBlock(i.geo, i.language, i.required_link_type)),
       el("td", { class: "left" }, donorBlock(i.donor)),
-      el("td", {}, assignee
+      el("td", { class: "left" }, assignee
         ? el("span", { style: { fontSize: "13px" } }, assignee.name || assignee.full_name || assignee.email)
         : el("span", { class: "dimmed" }, "—")),
       el("td", {}, statusCellWithReason(i)),
-      el("td", {}, i.result_url ? el("a", { href: i.result_url, target: "_blank", class: "mono url" }, i.result_url) : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left truncate", title: i.result_url || "" }, i.result_url
+        ? el("a", { href: i.result_url, target: "_blank", class: "mono" }, i.result_url)
+        : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "right actions" }, menuButton([
         isAdmin && { label: "Подобрать автоматически", icon: "zap", onClick: async () => {
           try { const r = await api.matchOne(i.id); toast(`Подобран донор #${r.donor_id}`, "success"); load(); }
@@ -258,7 +256,7 @@ function paramsBlock(geo, lang, type) {
   const parts = [];
   if (geo) parts.push(geo);
   if (lang) parts.push(lang);
-  const wrap = el("div", { class: "row", style: { gap: "4px", flexWrap: "wrap", justifyContent: "flex-start" } });
+  const wrap = el("div", { class: "row", style: { gap: "6px", flexWrap: "wrap" } });
   if (parts.length) wrap.appendChild(el("span", { class: "muted", style: { fontSize: "12px" } }, parts.join(" · ")));
   if (type) wrap.appendChild(el("span", { class: "pill", style: { fontSize: "10.5px" } }, type));
   if (!wrap.children.length) wrap.appendChild(el("span", { class: "dimmed" }, "—"));
@@ -272,18 +270,19 @@ function donorBlock(donor) {
     : donor.link_type === "mixed" ? "info"
     : donor.link_type === "error" ? "error"
     : "";
-  const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" } });
+  const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start", minWidth: 0 } });
   wrap.appendChild(el("a", {
     href: donor.donor_url && donor.donor_url.startsWith("http") ? donor.donor_url : "https://" + (donor.donor_url || donor.domain || ""),
     target: "_blank",
     class: "mono",
+    title: donor.donor_url || donor.domain || "",
     style: { fontSize: "12.5px", fontWeight: 500 },
   }, donor.domain || donor.donor_url));
   const meta = [];
   if (donor.geo) meta.push(donor.geo);
   if (donor.language) meta.push(donor.language);
   if (donor.tr) meta.push("DR " + donor.tr);
-  const metaRow = el("div", { class: "row", style: { gap: "4px", flexWrap: "wrap", justifyContent: "flex-start", fontSize: "11px" } });
+  const metaRow = el("div", { class: "row", style: { gap: "6px", flexWrap: "wrap", fontSize: "11px" } });
   if (meta.length) metaRow.appendChild(el("span", { class: "muted" }, meta.join(" · ")));
   if (donor.link_type) metaRow.appendChild(el("span", { class: `pill ${linkClass}`, style: { fontSize: "10px" } }, donor.link_type));
   wrap.appendChild(metaRow);

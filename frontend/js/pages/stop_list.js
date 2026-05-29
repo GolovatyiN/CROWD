@@ -66,19 +66,19 @@ export async function renderStopList(host) {
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
       sortHeader("Донор", "donor_url", state, load, "left"),
       sortHeader("Анкор", "anchor_text", state, load, "left"),
-      el("th", {}, "Результат"),
-      el("th", {}, "Аккаунт"),
+      el("th", { class: "left" }, "Результат"),
+      el("th", { class: "left" }, "Аккаунт"),
       sortHeader("План", "source_anchor_plan", state, load),
       sortHeader("Дата", "placed_at", state, load),
       el("th", { class: "right" }, ""),
     )));
     const tbody = el("tbody");
     rows.forEach(r => tbody.appendChild(el("tr", {},
-      el("td", { class: "left mono url" }, r.target_url),
-      el("td", { class: "left" }, el("a", { href: r.donor_url, target: "_blank", class: "mono url" }, r.donor_url)),
-      el("td", { class: "left", style: { maxWidth: "200px" } }, r.anchor_text || el("span", { class: "dimmed" }, "—")),
-      el("td", {}, r.result_url ? el("a", { href: r.result_url, target: "_blank", class: "mono url" }, r.result_url) : el("span", { class: "dimmed" }, "—")),
-      el("td", { class: "mono muted" }, r.account_username || r.login_email || el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left truncate mono", title: r.target_url }, r.target_url),
+      el("td", { class: "left truncate", title: r.donor_url }, el("a", { href: ensureUrl(r.donor_url), target: "_blank", class: "mono" }, r.donor_url)),
+      el("td", { class: "left truncate", title: r.anchor_text || "" }, r.anchor_text || el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left truncate", title: r.result_url || "" }, r.result_url ? el("a", { href: r.result_url, target: "_blank", class: "mono" }, r.result_url) : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left mono muted" }, r.account_username || r.login_email || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "muted" }, r.source_anchor_plan || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "muted", title: fmtDate(r.placed_at) }, fmtRelative(r.placed_at)),
       el("td", { class: "right actions" }, menuButton([
@@ -97,6 +97,11 @@ export async function renderStopList(host) {
   }
 
   await load();
+}
+
+function ensureUrl(raw) {
+  if (!raw) return "#";
+  return /^https?:\/\//i.test(raw) ? raw : "https://" + raw;
 }
 
 function field(label, input) {

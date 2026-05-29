@@ -240,9 +240,9 @@ function donorRow(d, reload, selected, refreshBulkBar) {
       if (e.target.checked) selected.add(d.id); else selected.delete(d.id);
       refreshBulkBar();
     }}) : ""),
-    el("td", { class: "left" },
+    el("td", { class: "left truncate", title: d.donor_url },
       el("a", { href: ensureUrl(d.donor_url), target: "_blank", class: "mono", style: { fontWeight: 500 } }, domainText),
-      el("div", { class: "row", style: { gap: "6px", marginTop: "2px", justifyContent: "flex-start" } },
+      (d.category || !d.is_active) && el("div", { class: "row", style: { gap: "6px", marginTop: "2px" } },
         !d.is_active && el("span", { class: "pill error", style: { fontSize: "10.5px" } }, "неактивен"),
         d.category && el("span", { class: "muted", style: { fontSize: "11.5px" } }, d.category),
       ),

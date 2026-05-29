@@ -197,7 +197,7 @@ function taskRow(t, num, reload) {
   const displayTarget = t.target_url || t.target_domain || "";
   return el("tr", {},
     el("td", { class: "left compact muted tabular mono", style: { fontSize: "11.5px" } }, String(num)),
-    el("td", { class: "left" },
+    el("td", { class: "left truncate", title: displayTarget || "" },
       displayTarget
         ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
             el("a", {
