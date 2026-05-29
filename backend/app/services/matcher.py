@@ -174,7 +174,18 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
     doesn't matter otherwise — an item assigned to an employee still needs a
     donor, and the employee can't act until one is picked.
 
-    Returns counters and per-item status updates. Caller commits.
+    Hot path: when a customer dumps 2000 rows and clicks "match", the naive
+    implementation fires ~6000 SELECTs (find_best_donor + stop-list query +
+    placements query × N items). With Postgres on a different continent that
+    was *minutes*. This version pulls everything in **3 queries** and does
+    all filtering / scoring in Python with pre-normalised values:
+
+      1. fetch the eligible items
+      2. fetch every active donor and pre-compute geo/lang/score
+      3. fetch all blocked (target_url, donor_url) pairs in one IN()
+
+    Then it's a single in-memory loop. 2000 items × 2000 donors ≈ 4M dirt
+    cheap comparisons — well under a second.
     """
     items = db.execute(
         select(AnchorPlanItem).where(
@@ -185,27 +196,81 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
             )
         )
     ).scalars().all()
+    if not items:
+        return {"matched": 0, "not_matched": 0, "items_problem": [], "considered": 0}
 
+    # ---- pre-compute donor pool ----
+    donors_q = db.execute(select(Donor).where(Donor.is_active.is_(True))).scalars().all()
+    donor_records: list[dict] = []
+    for d in donors_q:
+        donor_records.append({
+            "id": d.id,
+            "donor_url": d.donor_url,
+            "geo_norm": normalize_country(d.geo or ""),
+            "lang_norm": normalize_language(d.language or ""),
+            "link_type": (d.link_type or "").lower(),
+            "score": quality_score(d),
+        })
+
+    # ---- bulk-load blocked (target_url, donor_url) pairs ----
+    target_urls = {it.target_url for it in items if it.target_url}
+    blocked_by_target: dict[str, set[str]] = {}
+    if target_urls:
+        for tu, du in db.execute(
+            select(StopListEntry.target_url, StopListEntry.donor_url)
+            .where(StopListEntry.target_url.in_(target_urls))
+        ).all():
+            blocked_by_target.setdefault(tu, set()).add(du)
+        for tu, du in db.execute(
+            select(Placement.target_url, Placement.donor_url)
+            .where(
+                Placement.target_url.in_(target_urls),
+                Placement.status.in_(["placed", "done"]),
+            )
+        ).all():
+            blocked_by_target.setdefault(tu, set()).add(du)
+
+    # ---- per-item pick ----
     matched = 0
     problem_items: list[int] = []
-    # Avoid suggesting the same donor twice for the same target_url within this batch.
     used_per_target: dict[str, set[int]] = {}
 
     for item in items:
         used_ids = used_per_target.setdefault(item.target_url, set())
-        donor = find_best_donor(db, item, exclude_donor_ids=used_ids)
-        if donor is None:
+        blocked_urls = blocked_by_target.get(item.target_url, set())
+        item_geo = normalize_country(item.geo or "")
+        item_lang = normalize_language(item.language or "")
+        req_lt = (item.required_link_type or "").lower()
+        require_lt = req_lt and req_lt != "unknown"
+
+        best = None
+        best_score = -1.0
+        for d in donor_records:
+            if d["id"] in used_ids:
+                continue
+            if d["donor_url"] in blocked_urls:
+                continue
+            if require_lt and d["link_type"] != req_lt and d["link_type"] != "mixed":
+                continue
+            if item_geo and d["geo_norm"] and d["geo_norm"] != item_geo:
+                continue
+            if item_lang and d["lang_norm"] and d["lang_norm"] != item_lang:
+                continue
+            if d["score"] > best_score:
+                best = d
+                best_score = d["score"]
+
+        if best is None:
             item.status = "problem"
             if not item.comment:
                 item.comment = "Подходящий донор не найден (гео / язык / тип ссылки / стоп-лист)"
             problem_items.append(item.id)
             continue
-        item.selected_donor_id = donor.id
-        # Promote 'new' → 'donor_selected', leave 'assigned'/'in_progress' alone
-        # so the employee keeps ownership.
+
+        item.selected_donor_id = best["id"]
         if item.status in ("new", "problem"):
             item.status = "donor_selected"
-        used_ids.add(donor.id)
+        used_ids.add(best["id"])
         matched += 1
 
     return {

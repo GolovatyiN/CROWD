@@ -25,25 +25,27 @@ export async function renderPlanDetails(host, planId) {
   );
   if (isAdmin) {
     headerActions.appendChild(el("button", { class: "ghost", onClick: () => openAssign() }, icon("user", { size: 14 }), el("span", {}, "Назначить выбранные")));
-    headerActions.appendChild(el("button", { class: "ghost", onClick: async () => {
-      try {
+
+    headerActions.appendChild(busyButton("ghost", icon("target", { size: 14 }), "Заполнить гео по TLD",
+      "Заполняем гео…",
+      async () => {
         const r = await api.reinferGeo(planId);
         toast(`Восстановлено: гео для ${r.geo_filled}, язык для ${r.language_filled} из ${r.items_total} строк`, "success");
         load();
-      } catch (e) { toast(e.message, "error"); }
-    }}, icon("target", { size: 14 }), el("span", {}, "Заполнить гео по TLD")));
+      }));
 
-    headerActions.appendChild(el("button", { class: "ghost", onClick: async () => {
-      if (!confirm("Сбросить всех доноров и подобрать заново? Размещённые строки останутся как есть.")) return;
-      try {
+    headerActions.appendChild(busyButton("ghost", icon("refresh", { size: 14 }), "Перепривязать всех",
+      "Подбираем доноров…",
+      async () => {
+        if (!confirm("Сбросить всех доноров и подобрать заново? Размещённые строки останутся как есть.")) return;
         const r = await api.rematchAll(planId);
         toast(`Подобрано заново: ${r.matched} из ${r.considered}${r.not_matched ? `, проблем: ${r.not_matched}` : ""}`, "success");
         load();
-      } catch (e) { toast(e.message, "error"); }
-    }}, icon("refresh", { size: 14 }), el("span", {}, "Перепривязать всех")));
+      }));
 
-    headerActions.appendChild(el("button", { onClick: async () => {
-      try {
+    headerActions.appendChild(busyButton("", icon("zap", { size: 14 }), "Подобрать доноров",
+      "Подбираем…",
+      async () => {
         const r = await api.autoMatch(planId);
         if (!r.considered) {
           toast("Нет строк, требующих подбора — у всех уже есть донор", "warning");
@@ -53,8 +55,29 @@ export async function renderPlanDetails(host, planId) {
           toast(`Подобрано: ${r.matched} из ${r.considered}${r.not_matched ? `, проблем: ${r.not_matched}` : ""}`, "success");
         }
         load();
-      } catch (e) { toast(e.message, "error"); }
-    }}, icon("zap", { size: 14 }), el("span", {}, "Подобрать доноров")));
+      }));
+  }
+
+  // Wraps an async click handler with disabled-state + spinner + replaces label
+  // while in flight. We use it on the long-running matcher buttons.
+  function busyButton(klass, iconEl, idleLabel, busyLabel, run) {
+    const labelSpan = el("span", {}, idleLabel);
+    const btn = el("button", { class: klass, onClick: async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      const prevChildren = [...btn.childNodes];
+      btn.innerHTML = "";
+      btn.appendChild(el("span", { class: "spinner", style: { width: "12px", height: "12px", borderWidth: "2px" } }));
+      btn.appendChild(el("span", {}, busyLabel));
+      try { await run(); }
+      catch (e) { toast(e.message || "Ошибка", "error"); }
+      finally {
+        btn.disabled = false;
+        btn.innerHTML = "";
+        prevChildren.forEach(c => btn.appendChild(c));
+      }
+    }}, iconEl, labelSpan);
+    return btn;
   }
 
   host.appendChild(el("div", { class: "page-header" },
