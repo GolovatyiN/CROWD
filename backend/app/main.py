@@ -29,14 +29,23 @@ NEON_HEARTBEAT_INTERVAL = 240  # seconds
 
 
 async def neon_heartbeat() -> None:
+    consecutive_failures = 0
     while True:
         try:
             await asyncio.sleep(NEON_HEARTBEAT_INTERVAL)
             await asyncio.to_thread(_ping_db)
+            consecutive_failures = 0
         except asyncio.CancelledError:
             return
-        except Exception as exc:  # noqa: BLE001 — we want to keep looping no matter what
-            log.warning("heartbeat ping failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            consecutive_failures += 1
+            # Back off if the DB has been refusing connections — no point
+            # hammering Neon if we're out of quota.
+            if consecutive_failures < 3:
+                log.warning("heartbeat ping failed: %s", exc)
+            elif consecutive_failures == 3:
+                log.warning("heartbeat failing repeatedly, backing off to 10 min")
+            await asyncio.sleep(min(consecutive_failures * 60, 600))
 
 
 def _ping_db() -> None:
@@ -84,10 +93,26 @@ app.include_router(audit.router)
 
 
 @app.get("/api/health")
-def health(db: Session = Depends(get_db)):
-    """Health endpoint that also touches Postgres so Neon stays warm."""
-    db.execute(text("SELECT 1"))
+def health():
+    """Liveness probe — must succeed even if the database is down.
+
+    Railway uses this to decide whether a deploy succeeded. If we couple it
+    to DB connectivity, a temporary DB outage (Neon quota, restart, network
+    blip) blocks every future deploy too — including the deploy that would
+    fix the issue. Keep the liveness check pure.
+    """
     return {"ok": True}
+
+
+@app.get("/api/health/db")
+def health_db(db: Session = Depends(get_db)):
+    """Optional deep check — pokes Postgres. Use this for monitoring, not
+    for the deploy gate."""
+    try:
+        db.execute(text("SELECT 1"))
+        return {"ok": True, "db": "up"}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "db": "down", "error": str(e)[:200]}, status_code=503)
 
 
 # --- Static frontend ---
