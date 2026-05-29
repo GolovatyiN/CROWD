@@ -165,7 +165,8 @@ function taskRow(t, num, reload) {
       accountCell.appendChild(passwordRow(accountPwd));
     }
   } else {
-    accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
+    accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } },
+      donor ? "введите при размещении" : "—"));
   }
 
   // ----- Actions cell -----
@@ -191,12 +192,7 @@ function taskRow(t, num, reload) {
   }
 
   // ----- Donor cell -----
-  const donorCell = donor
-    ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px", justifyContent: "flex-start" } },
-        el("a", { href: donor.donor_url, target: "_blank", class: "mono", style: { fontSize: "12.5px", fontWeight: 500 } }, donor.domain || donor.donor_url),
-        copyMicroBtn(donor.donor_url),
-      )
-    : el("span", { class: "dimmed" }, "не подобран");
+  const donorCell = donor ? donorCellBlock(donor) : el("span", { class: "dimmed" }, "не подобран");
 
   const displayTarget = t.target_url || t.target_domain || "";
   return el("tr", {},
@@ -226,6 +222,30 @@ function taskRow(t, num, reload) {
     el("td", { class: "left" }, resultInput),
     el("td", { class: "right actions" }, actions),
   );
+}
+
+function donorCellBlock(donor) {
+  const url = donor.donor_url || donor.domain || "";
+  const href = url.startsWith("http") ? url : "https://" + url;
+  const linkClass = donor.link_type === "dofollow" ? "success"
+    : donor.link_type === "nofollow" ? "muted"
+    : donor.link_type === "mixed" ? "info"
+    : donor.link_type === "error" ? "error"
+    : "";
+  const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" } });
+  wrap.appendChild(el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+    el("a", { href, target: "_blank", class: "mono", style: { fontSize: "12.5px", fontWeight: 500 } }, donor.domain || donor.donor_url),
+    copyMicroBtn(url),
+  ));
+  const meta = [];
+  if (donor.geo) meta.push(donor.geo);
+  if (donor.language) meta.push(donor.language);
+  if (donor.tr) meta.push("DR " + donor.tr);
+  const metaRow = el("div", { class: "row", style: { gap: "4px", flexWrap: "wrap", justifyContent: "flex-start", fontSize: "11px" } });
+  if (meta.length) metaRow.appendChild(el("span", { class: "muted" }, meta.join(" · ")));
+  if (donor.link_type) metaRow.appendChild(el("span", { class: `pill ${linkClass}`, style: { fontSize: "10px" } }, donor.link_type));
+  if (metaRow.children.length) wrap.appendChild(metaRow);
+  return wrap;
 }
 
 function shortenUrl(url) {

@@ -108,7 +108,7 @@ ITEM_SORT_FIELDS = {
 }
 
 
-@router.get("/{plan_id}/items", response_model=list[AnchorPlanItemOut])
+@router.get("/{plan_id}/items")
 def list_items(
     plan_id: int,
     db: Session = Depends(get_db),
@@ -141,7 +141,58 @@ def list_items(
         query = query.filter(AnchorPlanItem.assigned_to == assigned_to)
     sort_col = ITEM_SORT_FIELDS.get(sort.lower(), AnchorPlanItem.id)
     direction = sort_col.desc() if order.lower() == "desc" else sort_col.asc()
-    return query.order_by(direction, AnchorPlanItem.id.asc()).offset(offset).limit(limit).all()
+    items = query.order_by(direction, AnchorPlanItem.id.asc()).offset(offset).limit(limit).all()
+
+    # Pre-load all related donors and users in two queries instead of per-row N+1.
+    donor_ids = {it.selected_donor_id for it in items if it.selected_donor_id}
+    user_ids = {it.assigned_to for it in items if it.assigned_to}
+    donors_by_id = {}
+    users_by_id = {}
+    if donor_ids:
+        for d in db.query(Donor).filter(Donor.id.in_(donor_ids)).all():
+            donors_by_id[d.id] = d
+    if user_ids:
+        for u in db.query(User).filter(User.id.in_(user_ids)).all():
+            users_by_id[u.id] = u
+
+    out = []
+    for it in items:
+        donor = donors_by_id.get(it.selected_donor_id) if it.selected_donor_id else None
+        user = users_by_id.get(it.assigned_to) if it.assigned_to else None
+        out.append({
+            "id": it.id,
+            "anchor_plan_id": it.anchor_plan_id,
+            "target_domain": it.target_domain,
+            "target_url": it.target_url,
+            "anchor_text": it.anchor_text,
+            "geo": it.geo,
+            "language": it.language,
+            "required_link_type": it.required_link_type,
+            "requirements": it.requirements,
+            "assigned_to": it.assigned_to,
+            "selected_donor_id": it.selected_donor_id,
+            "status": it.status,
+            "result_url": it.result_url,
+            "comment": it.comment,
+            "created_at": it.created_at.isoformat() if it.created_at else None,
+            "updated_at": it.updated_at.isoformat() if it.updated_at else None,
+            "donor": {
+                "id": donor.id,
+                "donor_url": donor.donor_url,
+                "domain": donor.domain,
+                "geo": donor.geo,
+                "language": donor.language,
+                "link_type": donor.link_type,
+                "tr": donor.tr,
+                "organic_traffic": donor.organic_traffic,
+            } if donor else None,
+            "assignee": {
+                "id": user.id,
+                "name": user.full_name or user.email,
+                "email": user.email,
+            } if user else None,
+        })
+    return out
 
 
 @router.patch("/items/{item_id}", response_model=AnchorPlanItemOut)

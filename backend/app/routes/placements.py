@@ -135,9 +135,12 @@ def my_tasks(
             "donor": {
                 "id": donor.id,
                 "donor_url": donor.donor_url,
+                "domain": donor.domain,
                 "geo": donor.geo,
                 "language": donor.language,
                 "link_type": donor.link_type,
+                "tr": donor.tr,
+                "organic_traffic": donor.organic_traffic,
             } if donor else None,
             "placement": {
                 "id": placement.id,

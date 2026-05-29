@@ -118,10 +118,8 @@ export async function renderPlanDetails(host, planId) {
       el("th", { class: "compact left" }, headerCheckbox),
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
       sortHeader("Анкор", "anchor_text", state, load, "left"),
-      sortHeader("Гео", "geo", state, load),
-      sortHeader("Язык", "language", state, load),
-      sortHeader("Тип", "required_link_type", state, load),
-      sortHeader("Донор", "selected_donor_id", state, load),
+      el("th", { class: "left" }, "Параметры"),
+      el("th", { class: "left" }, "Донор"),
       sortHeader("Сотрудник", "assigned_to", state, load),
       sortHeader("Статус", "status", state, load),
       el("th", {}, "Результат"),
@@ -134,26 +132,31 @@ export async function renderPlanDetails(host, planId) {
   }
 
   function itemRow(i) {
-    const assignee = users.find(u => u.id === i.assigned_to);
-    // Visual treatment for row state — fade out anything the user no longer
-    // needs to act on, so the live workload stands out.
+    // Use the embedded assignee/donor from the API (single round-trip) and
+    // fall back to the users[] lookup only if the backend didn't populate it.
+    const assignee = i.assignee || users.find(u => u.id === i.assigned_to);
     let rowStyle = null;
     if (i.status === "placed" || i.status === "done") rowStyle = { opacity: 0.35 };
     else if (i.status === "assigned" || i.status === "in_progress") rowStyle = { opacity: 0.6 };
+
+    const targetText = i.target_url || i.target_domain || "";
+    const targetHref = targetText.startsWith("http") ? targetText : (targetText ? "https://" + targetText : "#");
+
     return el("tr", { style: rowStyle },
       el("td", { class: "compact" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
         if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
       }}) : ""),
-      el("td", {},
-        el("a", { href: i.target_url || "#", target: "_blank", class: "mono url" }, i.target_url || i.target_domain),
-        i.target_domain && i.target_url && el("div", { class: "muted", style: { fontSize: "11.5px", marginTop: "1px" } }, i.target_domain),
-      ),
-      el("td", { style: { maxWidth: "200px" } }, el("span", { style: { fontSize: "13px" } }, i.anchor_text || el("span", { class: "dimmed" }, "—"))),
-      el("td", { class: "muted", style: { fontSize: "12.5px" } }, i.geo || el("span", { class: "dimmed" }, "—")),
-      el("td", { class: "muted", style: { fontSize: "12.5px" } }, i.language || el("span", { class: "dimmed" }, "—")),
-      el("td", {}, i.required_link_type ? el("span", { class: "pill" }, i.required_link_type) : el("span", { class: "dimmed" }, "—")),
-      el("td", {}, i.selected_donor_id ? el("span", { class: "pill info", style: { fontFamily: "var(--mono)" } }, `#${i.selected_donor_id}`) : el("span", { class: "dimmed" }, "—")),
-      el("td", {}, assignee ? el("span", { style: { fontSize: "13px" } }, assignee.full_name || assignee.email) : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left" }, targetText
+        ? el("a", { href: targetHref, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, targetText)
+        : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left", style: { maxWidth: "200px" } }, i.anchor_text
+        ? el("span", { style: { fontSize: "13px" } }, i.anchor_text)
+        : el("span", { class: "dimmed" }, "—")),
+      el("td", { class: "left" }, paramsBlock(i.geo, i.language, i.required_link_type)),
+      el("td", { class: "left" }, donorBlock(i.donor)),
+      el("td", {}, assignee
+        ? el("span", { style: { fontSize: "13px" } }, assignee.name || assignee.full_name || assignee.email)
+        : el("span", { class: "dimmed" }, "—")),
       el("td", {}, statusPill(i.status)),
       el("td", {}, i.result_url ? el("a", { href: i.result_url, target: "_blank", class: "mono url" }, i.result_url) : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "right actions" }, menuButton([
@@ -193,6 +196,44 @@ export async function renderPlanDetails(host, planId) {
   }
 
   await load();
+}
+
+// ---- Inline cells ----
+
+function paramsBlock(geo, lang, type) {
+  const parts = [];
+  if (geo) parts.push(geo);
+  if (lang) parts.push(lang);
+  const wrap = el("div", { class: "row", style: { gap: "4px", flexWrap: "wrap", justifyContent: "flex-start" } });
+  if (parts.length) wrap.appendChild(el("span", { class: "muted", style: { fontSize: "12px" } }, parts.join(" · ")));
+  if (type) wrap.appendChild(el("span", { class: "pill", style: { fontSize: "10.5px" } }, type));
+  if (!wrap.children.length) wrap.appendChild(el("span", { class: "dimmed" }, "—"));
+  return wrap;
+}
+
+function donorBlock(donor) {
+  if (!donor) return el("span", { class: "dimmed" }, "не подобран");
+  const linkClass = donor.link_type === "dofollow" ? "success"
+    : donor.link_type === "nofollow" ? "muted"
+    : donor.link_type === "mixed" ? "info"
+    : donor.link_type === "error" ? "error"
+    : "";
+  const wrap = el("div", { style: { display: "flex", flexDirection: "column", gap: "2px", alignItems: "flex-start" } });
+  wrap.appendChild(el("a", {
+    href: donor.donor_url && donor.donor_url.startsWith("http") ? donor.donor_url : "https://" + (donor.donor_url || donor.domain || ""),
+    target: "_blank",
+    class: "mono",
+    style: { fontSize: "12.5px", fontWeight: 500 },
+  }, donor.domain || donor.donor_url));
+  const meta = [];
+  if (donor.geo) meta.push(donor.geo);
+  if (donor.language) meta.push(donor.language);
+  if (donor.tr) meta.push("DR " + donor.tr);
+  const metaRow = el("div", { class: "row", style: { gap: "4px", flexWrap: "wrap", justifyContent: "flex-start", fontSize: "11px" } });
+  if (meta.length) metaRow.appendChild(el("span", { class: "muted" }, meta.join(" · ")));
+  if (donor.link_type) metaRow.appendChild(el("span", { class: `pill ${linkClass}`, style: { fontSize: "10px" } }, donor.link_type));
+  wrap.appendChild(metaRow);
+  return wrap;
 }
 
 async function openDonorPicker(item, reload) {
