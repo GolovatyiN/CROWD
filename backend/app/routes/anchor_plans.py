@@ -239,6 +239,69 @@ def auto_match(plan_id: int, db: Session = Depends(get_db), _: User = Depends(re
     return result
 
 
+@router.post("/{plan_id}/rematch-all", response_model=AutoMatchResult)
+def rematch_all(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Force-reset donors on every non-finalised row and pick again.
+
+    Useful after changing the GEO/language data of the plan or the matching
+    rules — without this you'd have to delete the plan and re-import.
+    """
+    plan = db.get(AnchorPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="План не найден")
+    # Drop current donor selections on everything that's not yet placed.
+    db.query(AnchorPlanItem).filter(
+        AnchorPlanItem.anchor_plan_id == plan_id,
+        ~AnchorPlanItem.status.in_(["placed", "done", "rejected"]),
+    ).update({
+        AnchorPlanItem.selected_donor_id: None,
+    }, synchronize_session=False)
+    db.flush()
+    result = auto_match_plan(db, plan_id)
+    db.commit()
+    return result
+
+
+@router.post("/{plan_id}/reinfer-geo")
+def reinfer_geo(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Re-fill empty geo/language columns on the plan from the URL's TLD.
+
+    Lets the user fix a plan that was imported from a domains-only file —
+    .es / .com.br / .co.in get a sensible GEO without re-uploading.
+    """
+    from ..services.geo import country_from_url, language_from_url, normalize_country, normalize_language
+
+    plan = db.get(AnchorPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="План не найден")
+    items = db.query(AnchorPlanItem).filter(AnchorPlanItem.anchor_plan_id == plan_id).all()
+    geo_filled = 0
+    lang_filled = 0
+    for it in items:
+        url_source = it.target_url or it.target_domain
+        # Normalise whatever is already there first.
+        if it.geo:
+            norm = normalize_country(it.geo)
+            if norm and norm != it.geo:
+                it.geo = norm
+        if it.language:
+            norm = normalize_language(it.language)
+            if norm and norm != it.language:
+                it.language = norm
+        if not it.geo and url_source:
+            inferred = country_from_url(url_source)
+            if inferred:
+                it.geo = inferred
+                geo_filled += 1
+        if not it.language and url_source:
+            inferred = language_from_url(url_source)
+            if inferred:
+                it.language = inferred
+                lang_filled += 1
+    db.commit()
+    return {"geo_filled": geo_filled, "language_filled": lang_filled, "items_total": len(items)}
+
+
 @router.post("/items/{item_id}/match-now")
 def match_one_item(item_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     item = db.get(AnchorPlanItem, item_id)

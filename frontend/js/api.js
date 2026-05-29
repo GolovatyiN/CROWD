@@ -80,6 +80,8 @@ export const api = {
   updateItem: (id, data) => request(`/anchor-plans/items/${id}`, { method: "PATCH", body: data }),
   importPlan: (file, planName) => uploadFile("/anchor-plans/import", file, { plan_name: planName }),
   autoMatch: (id) => request(`/anchor-plans/${id}/auto-match`, { method: "POST" }),
+  rematchAll: (id) => request(`/anchor-plans/${id}/rematch-all`, { method: "POST" }),
+  reinferGeo: (id) => request(`/anchor-plans/${id}/reinfer-geo`, { method: "POST" }),
   matchOne: (itemId) => request(`/anchor-plans/items/${itemId}/match-now`, { method: "POST" }),
   candidates: (itemId, limit = 30) => request(`/anchor-plans/items/${itemId}/candidates?limit=${limit}`),
   setDonor: (itemId, donor_id) => request(`/anchor-plans/items/${itemId}/set-donor`, { method: "POST", body: { donor_id } }),

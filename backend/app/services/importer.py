@@ -26,6 +26,7 @@ from ..models import (
     StopListEntry,
 )
 from .matcher import extract_domain
+from .geo import country_from_url, language_from_url, normalize_country, normalize_language
 
 
 # ---------- shared ----------
@@ -176,6 +177,16 @@ def import_donors(db: Session, file_bytes: bytes, filename: str, user_id: Option
         seen_in_file.add(url)
 
         link_type = (_to_str(row.get("link_type")) or "unknown").lower()[:32]
+        # Normalise geo / language to canonical codes so the matcher can
+        # compare "Spain" / "ES" / "España" as equal.
+        raw_geo = _to_str(row.get("geo"))
+        geo = normalize_country(raw_geo) or raw_geo[:64]
+        if not geo:
+            geo = country_from_url(url) or ""
+        raw_lang = _to_str(row.get("language"))
+        language = normalize_language(raw_lang) or raw_lang[:64]
+        if not language:
+            language = language_from_url(url) or ""
         payload = dict(
             donor_url=url,
             domain=extract_domain(url)[:255],
@@ -183,8 +194,8 @@ def import_donors(db: Session, file_bytes: bytes, filename: str, user_id: Option
             organic_traffic=_to_int(row.get("organic_traffic")),
             ref_domains=_to_int(row.get("ref_domains")),
             backlinks=_to_int(row.get("backlinks")),
-            geo=_to_str(row.get("geo"))[:64],
-            language=_to_str(row.get("language"))[:64],
+            geo=geo[:64],
+            language=language[:64],
             link_type=link_type,
             category=_to_str(row.get("category"))[:128],
             comment=_to_str(row.get("comment")),
@@ -336,13 +347,19 @@ def import_anchor_plan(
             errors.append({"row": int(idx) + 2, "error": "пустые target_url и target_domain"})
             continue
         try:
+            # GEO / language: respect the file's value if present, else infer
+            # from the URL's TLD (.es → ES, .co.in → IN, etc.).
+            raw_geo = _to_str(row.get("geo"))
+            geo = normalize_country(raw_geo) or raw_geo.upper()[:64] if raw_geo else (country_from_url(target_url) or country_from_url(target_domain) or "")
+            raw_lang = _to_str(row.get("language"))
+            language = normalize_language(raw_lang) or raw_lang.lower()[:64] if raw_lang else (language_from_url(target_url) or language_from_url(target_domain) or "")
             item = AnchorPlanItem(
                 anchor_plan_id=plan.id,
                 target_url=target_url,
                 target_domain=target_domain,
                 anchor_text=_to_str(row.get("anchor_text")),
-                geo=_to_str(row.get("geo")),
-                language=_to_str(row.get("language")),
+                geo=geo,
+                language=language,
                 required_link_type=(_to_str(row.get("required_link_type")) or "").lower(),
                 requirements=_to_str(row.get("requirements")),
                 status="new",

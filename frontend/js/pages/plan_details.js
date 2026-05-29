@@ -25,6 +25,23 @@ export async function renderPlanDetails(host, planId) {
   );
   if (isAdmin) {
     headerActions.appendChild(el("button", { class: "ghost", onClick: () => openAssign() }, icon("user", { size: 14 }), el("span", {}, "Назначить выбранные")));
+    headerActions.appendChild(el("button", { class: "ghost", onClick: async () => {
+      try {
+        const r = await api.reinferGeo(planId);
+        toast(`Восстановлено: гео для ${r.geo_filled}, язык для ${r.language_filled} из ${r.items_total} строк`, "success");
+        load();
+      } catch (e) { toast(e.message, "error"); }
+    }}, icon("target", { size: 14 }), el("span", {}, "Заполнить гео по TLD")));
+
+    headerActions.appendChild(el("button", { class: "ghost", onClick: async () => {
+      if (!confirm("Сбросить всех доноров и подобрать заново? Размещённые строки останутся как есть.")) return;
+      try {
+        const r = await api.rematchAll(planId);
+        toast(`Подобрано заново: ${r.matched} из ${r.considered}${r.not_matched ? `, проблем: ${r.not_matched}` : ""}`, "success");
+        load();
+      } catch (e) { toast(e.message, "error"); }
+    }}, icon("refresh", { size: 14 }), el("span", {}, "Перепривязать всех")));
+
     headerActions.appendChild(el("button", { onClick: async () => {
       try {
         const r = await api.autoMatch(planId);

@@ -32,6 +32,7 @@ from ..models import (
     Placement,
     StopListEntry,
 )
+from .geo import normalize_country, normalize_language
 
 
 # ---------- helpers ----------
@@ -103,14 +104,33 @@ def _blocked_donor_urls_for_target(db: Session, target_url: str) -> set[str]:
 
 
 def _candidates_query(db: Session, item: AnchorPlanItem):
-    q = select(Donor).where(Donor.is_active.is_(True))
-    geo = _norm(item.geo)
-    if geo:
-        q = q.where(or_(Donor.geo == "", Donor.geo.ilike(geo)))
-    lang = _norm(item.language)
-    if lang:
-        q = q.where(or_(Donor.language == "", Donor.language.ilike(lang)))
-    return q
+    """Active donors only — geo/language are checked in Python after the
+    fetch because we need normalised comparison (Spain == ES == España)
+    that's awkward to express in SQL.
+    """
+    return select(Donor).where(Donor.is_active.is_(True))
+
+
+def _geo_compatible(item_geo_norm: str, donor_geo: str) -> bool:
+    """True if the donor's geo can serve the item.
+
+    - If the item has no geo, anything is fine.
+    - If the donor has no geo (worldwide), it's fine too.
+    - Otherwise both must normalise to the same ISO-2 country code.
+    """
+    if not item_geo_norm:
+        return True
+    if not donor_geo:
+        return True
+    return normalize_country(donor_geo) == item_geo_norm
+
+
+def _lang_compatible(item_lang_norm: str, donor_lang: str) -> bool:
+    if not item_lang_norm:
+        return True
+    if not donor_lang:
+        return True
+    return normalize_language(donor_lang) == item_lang_norm
 
 
 def find_best_donor(
@@ -121,6 +141,8 @@ def find_best_donor(
 ) -> Optional[Donor]:
     blocked_urls = _blocked_donor_urls_for_target(db, item.target_url)
     excluded_ids = set(exclude_donor_ids or [])
+    item_geo = normalize_country(item.geo or "")
+    item_lang = normalize_language(item.language or "")
 
     donors: Sequence[Donor] = db.execute(_candidates_query(db, item)).scalars().all()
 
@@ -131,6 +153,10 @@ def find_best_donor(
         if d.donor_url in blocked_urls:
             continue
         if not link_type_compatible(item.required_link_type, d.link_type):
+            continue
+        if not _geo_compatible(item_geo, d.geo or ""):
+            continue
+        if not _lang_compatible(item_lang, d.language or ""):
             continue
         eligible.append(d)
 
