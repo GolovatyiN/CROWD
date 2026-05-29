@@ -27,4 +27,9 @@ WORKDIR /app/backend
 EXPOSE 8000
 
 # Railway / Render inject $PORT; default to 8000 for local.
-CMD ["sh", "-c", "alembic upgrade head && python -m app.seed && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Migrations and seed are best-effort: if the database is temporarily
+# unreachable (e.g. provider quota exceeded), still start the web process so
+# the deploy can succeed. Once DB connectivity is restored the next deploy
+# will run them. Uvicorn itself must always run — that's what the platform
+# health-checks.
+CMD ["sh", "-c", "(alembic upgrade head || echo 'WARNING: alembic upgrade failed, continuing') && (python -m app.seed || echo 'WARNING: seed failed, continuing') && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
