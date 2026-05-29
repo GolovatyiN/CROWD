@@ -18,6 +18,7 @@ the rules are easy to tweak in one place.
 from __future__ import annotations
 
 import math
+import time
 from typing import Iterable, Optional, Sequence
 from urllib.parse import urlparse
 
@@ -33,6 +34,54 @@ from ..models import (
     StopListEntry,
 )
 from .geo import normalize_country, normalize_language
+
+
+# In-process cache for the donor pool — auto_match_plan fetches every active
+# donor on every run. With Neon's metered transfer that's expensive when the
+# user clicks "Подобрать" several times in a row. 60-second TTL means
+# back-to-back clicks reuse the same snapshot. Invalidated automatically by
+# expiry; reads happen on every request anyway when donors get imported the
+# cache becomes stale within a minute.
+_DONOR_CACHE: dict = {"at": 0.0, "records": None}
+_DONOR_CACHE_TTL = 60.0  # seconds
+
+
+def _load_donor_pool(db: Session) -> list[dict]:
+    now = time.time()
+    if _DONOR_CACHE["records"] is not None and now - _DONOR_CACHE["at"] < _DONOR_CACHE_TTL:
+        return _DONOR_CACHE["records"]
+    rows = db.execute(
+        select(
+            Donor.id, Donor.donor_url, Donor.geo, Donor.language,
+            Donor.link_type, Donor.tr, Donor.organic_traffic,
+            Donor.ref_domains, Donor.backlinks,
+        ).where(Donor.is_active.is_(True))
+    ).all()
+    records: list[dict] = []
+    for d_id, d_url, d_geo, d_lang, d_lt, d_tr, d_traf, d_ref, d_back in rows:
+        score = (
+            (d_tr or 0) * settings.score_tr_weight
+            + math.log1p(max(d_traf or 0, 0)) * settings.score_traffic_weight
+            + math.log1p(max(d_ref or 0, 0)) * settings.score_refdomains_weight
+            + math.log1p(max(d_back or 0, 0)) * settings.score_backlinks_weight
+        )
+        records.append({
+            "id": d_id,
+            "donor_url": d_url,
+            "geo_norm": normalize_country(d_geo or ""),
+            "lang_norm": normalize_language(d_lang or ""),
+            "link_type": (d_lt or "").lower(),
+            "score": score,
+        })
+    _DONOR_CACHE["records"] = records
+    _DONOR_CACHE["at"] = now
+    return records
+
+
+def invalidate_donor_cache() -> None:
+    """Called from import / create / update routes so the pool refreshes."""
+    _DONOR_CACHE["records"] = None
+    _DONOR_CACHE["at"] = 0.0
 
 
 # ---------- helpers ----------
@@ -199,18 +248,8 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
     if not items:
         return {"matched": 0, "not_matched": 0, "items_problem": [], "considered": 0}
 
-    # ---- pre-compute donor pool ----
-    donors_q = db.execute(select(Donor).where(Donor.is_active.is_(True))).scalars().all()
-    donor_records: list[dict] = []
-    for d in donors_q:
-        donor_records.append({
-            "id": d.id,
-            "donor_url": d.donor_url,
-            "geo_norm": normalize_country(d.geo or ""),
-            "lang_norm": normalize_language(d.language or ""),
-            "link_type": (d.link_type or "").lower(),
-            "score": quality_score(d),
-        })
+    # ---- pre-compute donor pool (cached) ----
+    donor_records = _load_donor_pool(db)
 
     # ---- bulk-load blocked (target_url, donor_url) pairs ----
     target_urls = {it.target_url for it in items if it.target_url}

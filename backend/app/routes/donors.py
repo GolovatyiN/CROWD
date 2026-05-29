@@ -3,7 +3,7 @@ import io
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
@@ -19,7 +19,7 @@ from ..schemas import (
     ImportPreview,
 )
 from ..services.importer import donors_to_csv, import_donors
-from ..services.matcher import account_usage, extract_domain
+from ..services.matcher import account_usage, extract_domain, invalidate_donor_cache
 from ..services.geo import normalize_country, normalize_language
 
 router = APIRouter(prefix="/donors", tags=["donors"])
@@ -188,7 +188,9 @@ def donors_stats(db: Session = Depends(get_db), _: User = Depends(get_current_us
     geo_counts: dict[str, int] = {}
     lang_counts: dict[str, int] = {}
     link_counts: dict[str, int] = {}
-    rows = db.query(Donor.geo, Donor.language, Donor.link_type).filter(Donor.is_active.is_(True)).all()
+    rows = db.execute(
+        select(Donor.geo, Donor.language, Donor.link_type).where(Donor.is_active.is_(True))
+    ).all()
     for g, l, t in rows:
         gn = normalize_country(g or "") or "(не указано)"
         ln = normalize_language(l or "") or "(не указано)"
@@ -331,6 +333,7 @@ async def import_donors_route(
     try:
         result = import_donors(db, content, file.filename or "donors", user.id)
         db.commit()
+        invalidate_donor_cache()
     except ValueError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
