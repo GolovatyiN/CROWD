@@ -42,13 +42,21 @@ export async function renderMyTasks(host) {
   const wrap = el("div", { class: "table-wrap" });
   host.appendChild(wrap);
 
+  // Email accounts available to this user (issued to them + shared pool).
+  // Loaded once and reused for every row's account picker.
+  let myAccounts = [];
+
   async function load() {
     wrap.innerHTML = "";
     wrap.appendChild(tableSkeleton(8, 9));
     try {
       const params = { sort: state.sort, order: state.order };
       if (state.status) params.status = state.status;
-      const data = await api.myTasks(params);
+      const [data, accounts] = await Promise.all([
+        api.myTasks(params),
+        api.emailAccounts({ is_active: true, sort: "email", order: "asc" }).catch(() => []),
+      ]);
+      myAccounts = accounts || [];
       render(data);
     } catch (e) {
       wrap.innerHTML = "";
@@ -74,15 +82,14 @@ export async function renderMyTasks(host) {
       sortHeader("Анкор", "anchor_text", state, load, "left"),
       sortHeader("Гео", "geo", state, load),
       sortHeader("Язык", "language", state, load),
-      el("th", {}, "Тип"),
       el("th", { class: "left" }, "Донор"),
-      el("th", { class: "left" }, "Аккаунт / логин"),
+      el("th", { class: "left" }, "Аккаунт для входа"),
       sortHeader("Статус", "status", state, load),
       el("th", { class: "left" }, "Результат"),
       el("th", { class: "right" }, ""),
     )));
     const tbody = el("tbody");
-    items.forEach((t, idx) => tbody.appendChild(taskRow(t, idx + 1, load)));
+    items.forEach((t, idx) => tbody.appendChild(taskRow(t, idx + 1, load, myAccounts)));
     table.appendChild(tbody);
     wrap.appendChild(table);
   }
@@ -90,10 +97,21 @@ export async function renderMyTasks(host) {
   await load();
 }
 
-function taskRow(t, num, reload) {
+function taskRow(t, num, reload, accounts) {
   const donor = t.donor;
   let placement = t.placement;
   const isPlaced = placement?.status === "placed";
+
+  // The account the employee will use to log into the donor and place the
+  // link. Pre-selected: whatever's already saved on the placement, else the
+  // first available account. Lives in the row closure so submitResult sees it.
+  let selectedAccount = null;
+  if (placement?.login_email) {
+    selectedAccount = (accounts || []).find(a => a.email === placement.login_email)
+      || { email: placement.login_email, password: placement.login_password || "" };
+  } else if (accounts && accounts.length) {
+    selectedAccount = accounts[0];
+  }
 
   // ----- Result URL input (autosave on Enter / blur) -----
   const resultInput = el("input", {
@@ -133,9 +151,9 @@ function taskRow(t, num, reload) {
       }
       await api.markPlaced(placement.id, {
         result_url: url,
-        login_email: placement.login_email || "",
-        login_password: placement.login_password || "",
-        account_username: placement.account_username || t.suggested_account?.account_username || "",
+        login_email: selectedAccount?.email || placement.login_email || "",
+        login_password: selectedAccount?.password || placement.login_password || "",
+        account_username: selectedAccount?.label || placement.account_username || "",
         comment: placement.comment || "",
       });
       toast("Размещение зафиксировано", "success");
@@ -145,28 +163,44 @@ function taskRow(t, num, reload) {
     }
   }
 
-  // ----- Account cell -----
-  const accountCell = el("div", { style: { fontSize: "12px", textAlign: "left" } });
-  const accountUser = placement?.account_username || t.suggested_account?.account_username;
-  const accountEmail = placement?.login_email || t.suggested_account?.login_email;
-  const accountPwd = placement?.login_password;
-  if (accountUser || accountEmail) {
-    accountCell.appendChild(el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
-      el("span", { class: "mono" }, accountUser || accountEmail),
-      copyMicroBtn(accountUser || accountEmail),
+  // ----- Account cell: pick a login, see its email + password right here ---
+  const accountCell = el("div", { style: { fontSize: "12px", textAlign: "left", minWidth: "200px" } });
+
+  const credsBox = el("div", { style: { marginTop: "4px" } });
+  function renderCreds() {
+    credsBox.innerHTML = "";
+    if (!selectedAccount || !selectedAccount.email) return;
+    credsBox.appendChild(el("div", { class: "mono", style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11.5px" } },
+      el("span", {}, selectedAccount.email),
+      copyMicroBtn(selectedAccount.email),
     ));
-    if (accountEmail && accountUser && accountEmail !== accountUser) {
-      accountCell.appendChild(el("div", { class: "muted mono", style: { fontSize: "11px", display: "flex", alignItems: "center", gap: "4px" } },
-        el("span", {}, accountEmail),
-        copyMicroBtn(accountEmail),
-      ));
-    }
-    if (accountPwd) {
-      accountCell.appendChild(passwordRow(accountPwd));
-    }
+    if (selectedAccount.password) credsBox.appendChild(passwordRow(selectedAccount.password));
+  }
+
+  if (isPlaced) {
+    // Done — just show what was used, read-only.
+    if (selectedAccount?.email) { renderCreds(); accountCell.appendChild(credsBox); }
+    else accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
+  } else if (accounts && accounts.length) {
+    const sel = document.createElement("select");
+    sel.style.fontSize = "12px";
+    accounts.forEach((a, i) => {
+      const o = document.createElement("option");
+      o.value = String(a.id);
+      o.textContent = a.label ? `${a.email} · ${a.label}` : a.email;
+      if (selectedAccount && a.id === selectedAccount.id) o.selected = true;
+      sel.appendChild(o);
+    });
+    sel.addEventListener("change", (e) => {
+      selectedAccount = accounts.find(a => String(a.id) === e.target.value) || null;
+      renderCreds();
+    });
+    accountCell.appendChild(sel);
+    accountCell.appendChild(credsBox);
+    renderCreds();
   } else {
     accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } },
-      donor ? "введите при размещении" : "—"));
+      "нет выданных аккаунтов"));
   }
 
   // ----- Actions cell -----
