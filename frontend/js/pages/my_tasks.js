@@ -1,5 +1,5 @@
 import { api } from "../api.js";
-import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader, submitButton } from "../components/dom.js";
+import { el, clear, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader, submitButton, busyClick } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -99,163 +99,160 @@ export async function renderMyTasks(host) {
 
 function taskRow(t, num, reload, accounts) {
   const donor = t.donor;
+  // placement / selectedAccount live in the row closure and survive repaints,
+  // so the row can update itself in place after an action — no full table
+  // reload, no skeleton flicker, no lost scroll/selection.
   let placement = t.placement;
-  const isPlaced = placement?.status === "placed";
 
-  // The account the employee will use to log into the donor and place the
-  // link. Pre-selected: whatever's already saved on the placement, else the
-  // first available account. Lives in the row closure so submitResult sees it.
   let selectedAccount = null;
-  if (placement?.login_email) {
-    selectedAccount = (accounts || []).find(a => a.email === placement.login_email)
-      || { email: placement.login_email, password: placement.login_password || "" };
-  } else if (accounts && accounts.length) {
-    selectedAccount = accounts[0];
+  function resolveSelectedAccount() {
+    if (placement?.login_email) {
+      selectedAccount = (accounts || []).find(a => a.email === placement.login_email)
+        || { email: placement.login_email, password: placement.login_password || "" };
+    } else if (accounts && accounts.length) {
+      selectedAccount = accounts[0];
+    } else {
+      selectedAccount = null;
+    }
+  }
+  resolveSelectedAccount();
+
+  const tr = el("tr");
+
+  // Repaint just this row from the current t/placement state.
+  function paint() {
+    const isPlaced = placement?.status === "placed";
+    clear(tr);
+
+    // --- result input ---
+    const resultInput = el("input", {
+      type: "url",
+      placeholder: placement ? "URL и Enter" : "—",
+      value: placement?.result_url || "",
+      disabled: !placement || isPlaced ? "" : null,
+      style: { fontSize: "12.5px", fontFamily: "var(--mono)", minWidth: "200px", maxWidth: "320px" },
+      onKeydown: (e) => { if (e.key === "Enter") { e.preventDefault(); submitResult(e.target.value); } },
+    });
+
+    // --- account cell ---
+    const accountCell = el("div", { style: { fontSize: "12px", textAlign: "left", minWidth: "200px" } });
+    const credsBox = el("div", { style: { marginTop: "4px" } });
+    function renderCreds() {
+      credsBox.innerHTML = "";
+      if (!selectedAccount || !selectedAccount.email) return;
+      credsBox.appendChild(el("div", { class: "mono", style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11.5px" } },
+        el("span", {}, selectedAccount.email), copyMicroBtn(selectedAccount.email)));
+      if (selectedAccount.password) credsBox.appendChild(passwordRow(selectedAccount.password));
+    }
+    if (isPlaced) {
+      if (selectedAccount?.email) { renderCreds(); accountCell.appendChild(credsBox); }
+      else accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
+    } else if (accounts && accounts.length) {
+      const sel = document.createElement("select");
+      sel.style.fontSize = "12px";
+      accounts.forEach((a) => {
+        const o = document.createElement("option");
+        o.value = String(a.id);
+        o.textContent = a.label ? `${a.email} · ${a.label}` : a.email;
+        if (selectedAccount && a.id === selectedAccount.id) o.selected = true;
+        sel.appendChild(o);
+      });
+      sel.addEventListener("change", (e) => {
+        selectedAccount = accounts.find(a => String(a.id) === e.target.value) || null;
+        renderCreds();
+      });
+      accountCell.appendChild(sel);
+      accountCell.appendChild(credsBox);
+      renderCreds();
+    } else {
+      accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } }, "нет выданных аккаунтов"));
+    }
+
+    // --- actions cell ---
+    const actions = el("div", { class: "row", style: { gap: "4px", justifyContent: "flex-end", flexWrap: "nowrap" } });
+    if (!placement) {
+      actions.appendChild(busyClick(el("button", { class: "ghost small", title: "Взять в работу" },
+        icon("zap", { size: 12 }), el("span", {}, "Взять")), async () => {
+        try {
+          const res = await api.takeTask(t.item_id);
+          placement = res; t.placement = res;
+          if (["new", "donor_selected", "assigned"].includes(t.status)) t.status = "in_progress";
+          resolveSelectedAccount();
+          toast("Взято в работу", "success");
+          paint();  // repaint only this row
+        } catch (e) { toast(e.message, "error"); }
+      }));
+    } else if (!isPlaced) {
+      actions.appendChild(el("button", { class: "ghost small", title: "Отметить размещение",
+        onClick: () => openPlacedForm(placement, t, onPlaced),
+      }, icon("check", { size: 12 })));
+      actions.appendChild(el("button", { class: "ghost small", title: "Проблема",
+        onClick: () => openProblemForm(placement, onProblem),
+      }, icon("alert", { size: 12 })));
+    } else {
+      actions.appendChild(el("button", { class: "subtle small", title: "Изменить",
+        onClick: () => openPlacedForm(placement, t, onPlaced),
+      }, icon("pencil", { size: 12 })));
+    }
+
+    const donorCell = donor ? donorCellBlock(donor) : el("span", { class: "dimmed" }, "не подобран");
+    const displayTarget = t.target_url || t.target_domain || "";
+
+    tr.appendChild(el("td", { class: "left compact muted tabular mono", style: { fontSize: "11.5px" } }, String(num)));
+    tr.appendChild(el("td", { class: "left truncate", title: displayTarget || "" },
+      displayTarget
+        ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
+            el("a", { href: displayTarget.startsWith("http") ? displayTarget : "https://" + displayTarget, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, shortenUrl(displayTarget)),
+            copyMicroBtn(displayTarget))
+        : el("span", { class: "dimmed" }, "—")));
+    tr.appendChild(el("td", { class: "left", style: { maxWidth: "200px" } },
+      t.anchor_text ? el("span", { style: { fontSize: "13px" } }, t.anchor_text) : el("span", { class: "dimmed" }, "—")));
+    tr.appendChild(el("td", { class: "muted", style: { fontSize: "12px" } }, t.geo || el("span", { class: "dimmed" }, "—")));
+    tr.appendChild(el("td", { class: "muted", style: { fontSize: "12px" } }, t.language || el("span", { class: "dimmed" }, "—")));
+    tr.appendChild(el("td", { class: "left" }, donorCell));
+    tr.appendChild(el("td", { class: "left" }, accountCell));
+    tr.appendChild(el("td", {}, statusPill(t.status)));
+    tr.appendChild(el("td", { class: "left" }, resultInput));
+    tr.appendChild(el("td", { class: "right actions" }, actions));
   }
 
-  // ----- Result URL input (autosave on Enter / blur) -----
-  const resultInput = el("input", {
-    type: "url",
-    placeholder: placement ? "URL и Enter" : "—",
-    value: placement?.result_url || "",
-    disabled: !placement || isPlaced ? "" : null,
-    style: {
-      fontSize: "12.5px",
-      fontFamily: "var(--mono)",
-      minWidth: "200px",
-      maxWidth: "320px",
-    },
-    onKeydown: (e) => {
-      if (e.key === "Enter") {
-        e.preventDefault();
-        submitResult(e.target.value);
-      }
-    },
-    onBlur: (e) => {
-      // Only save (without finishing) if there is text and status not yet placed.
-      const v = e.target.value.trim();
-      if (!placement || isPlaced || !v || v === (placement.result_url || "")) return;
-      // Just save the URL without changing status (separate API call would be nice; for now we no-op
-      // and require Enter to confirm placement).
-    },
-  });
-
+  // mark-placed via the inline result input (Enter)
   async function submitResult(v) {
     const url = (v || "").trim();
     if (!url) { toast("Введите ссылку на результат", "error"); return; }
     try {
-      // Auto-take if not already in progress
       if (!placement) {
-        const p = await api.takeTask(t.item_id);
-        placement = p;
+        placement = await api.takeTask(t.item_id);
+        t.placement = placement;
       }
-      await api.markPlaced(placement.id, {
+      const updated = await api.markPlaced(placement.id, {
         result_url: url,
         login_email: selectedAccount?.email || placement.login_email || "",
         login_password: selectedAccount?.password || placement.login_password || "",
         account_username: selectedAccount?.label || placement.account_username || "",
         comment: placement.comment || "",
       });
+      placement = updated; t.placement = updated; t.status = "placed";
+      resolveSelectedAccount();
       toast("Размещение зафиксировано", "success");
-      reload();
-    } catch (e) {
-      toast(e.message, "error");
-    }
+      paint();
+    } catch (e) { toast(e.message, "error"); }
   }
 
-  // ----- Account cell: pick a login, see its email + password right here ---
-  const accountCell = el("div", { style: { fontSize: "12px", textAlign: "left", minWidth: "200px" } });
-
-  const credsBox = el("div", { style: { marginTop: "4px" } });
-  function renderCreds() {
-    credsBox.innerHTML = "";
-    if (!selectedAccount || !selectedAccount.email) return;
-    credsBox.appendChild(el("div", { class: "mono", style: { display: "flex", alignItems: "center", gap: "4px", fontSize: "11.5px" } },
-      el("span", {}, selectedAccount.email),
-      copyMicroBtn(selectedAccount.email),
-    ));
-    if (selectedAccount.password) credsBox.appendChild(passwordRow(selectedAccount.password));
+  // callbacks from the detailed modals — update just this row
+  function onPlaced(updated) {
+    if (updated) { placement = updated; t.placement = updated; }
+    t.status = "placed";
+    resolveSelectedAccount();
+    paint();
+  }
+  function onProblem() {
+    t.status = "problem";
+    paint();
   }
 
-  if (isPlaced) {
-    // Done — just show what was used, read-only.
-    if (selectedAccount?.email) { renderCreds(); accountCell.appendChild(credsBox); }
-    else accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
-  } else if (accounts && accounts.length) {
-    const sel = document.createElement("select");
-    sel.style.fontSize = "12px";
-    accounts.forEach((a, i) => {
-      const o = document.createElement("option");
-      o.value = String(a.id);
-      o.textContent = a.label ? `${a.email} · ${a.label}` : a.email;
-      if (selectedAccount && a.id === selectedAccount.id) o.selected = true;
-      sel.appendChild(o);
-    });
-    sel.addEventListener("change", (e) => {
-      selectedAccount = accounts.find(a => String(a.id) === e.target.value) || null;
-      renderCreds();
-    });
-    accountCell.appendChild(sel);
-    accountCell.appendChild(credsBox);
-    renderCreds();
-  } else {
-    accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } },
-      "нет выданных аккаунтов"));
-  }
-
-  // ----- Actions cell -----
-  const actions = el("div", { class: "row", style: { gap: "4px", justifyContent: "flex-end", flexWrap: "nowrap" } });
-  if (!placement) {
-    actions.appendChild(el("button", { class: "ghost small", title: "Взять в работу",
-      onClick: async () => {
-        try { await api.takeTask(t.item_id); toast("Взято", "success"); reload(); }
-        catch (e) { toast(e.message, "error"); }
-      }
-    }, icon("zap", { size: 12 }), el("span", {}, "Взять")));
-  } else if (!isPlaced) {
-    actions.appendChild(el("button", { class: "ghost small", title: "Отметить размещение (открыть форму с кредами)",
-      onClick: () => openPlacedForm(placement, t, reload),
-    }, icon("check", { size: 12 })));
-    actions.appendChild(el("button", { class: "ghost small", title: "Проблема",
-      onClick: () => openProblemForm(placement, reload),
-    }, icon("alert", { size: 12 })));
-  } else {
-    actions.appendChild(el("button", { class: "subtle small", title: "Изменить",
-      onClick: () => openPlacedForm(placement, t, reload),
-    }, icon("pencil", { size: 12 })));
-  }
-
-  // ----- Donor cell -----
-  const donorCell = donor ? donorCellBlock(donor) : el("span", { class: "dimmed" }, "не подобран");
-
-  const displayTarget = t.target_url || t.target_domain || "";
-  return el("tr", {},
-    el("td", { class: "left compact muted tabular mono", style: { fontSize: "11.5px" } }, String(num)),
-    el("td", { class: "left truncate", title: displayTarget || "" },
-      displayTarget
-        ? el("div", { style: { display: "flex", alignItems: "center", gap: "4px" } },
-            el("a", {
-              href: displayTarget.startsWith("http") ? displayTarget : "https://" + displayTarget,
-              target: "_blank",
-              class: "mono",
-              style: { fontSize: "12.5px" },
-            }, shortenUrl(displayTarget)),
-            copyMicroBtn(displayTarget),
-          )
-        : el("span", { class: "dimmed" }, "—"),
-    ),
-    el("td", { class: "left", style: { maxWidth: "200px" } },
-      t.anchor_text ? el("span", { style: { fontSize: "13px" } }, t.anchor_text) : el("span", { class: "dimmed" }, "—"),
-    ),
-    el("td", { class: "muted", style: { fontSize: "12px" } }, t.geo || el("span", { class: "dimmed" }, "—")),
-    el("td", { class: "muted", style: { fontSize: "12px" } }, t.language || el("span", { class: "dimmed" }, "—")),
-    el("td", {}, t.required_link_type ? el("span", { class: "pill" }, t.required_link_type) : el("span", { class: "dimmed" }, "—")),
-    el("td", { class: "left" }, donorCell),
-    el("td", { class: "left" }, accountCell),
-    el("td", {}, statusPill(t.status)),
-    el("td", { class: "left" }, resultInput),
-    el("td", { class: "right actions" }, actions),
-  );
+  paint();
+  return tr;
 }
 
 function donorCellBlock(donor) {
@@ -334,7 +331,7 @@ function passwordRow(pw) {
 
 // ----- Detailed forms (kept for credential edits) -----
 
-async function openPlacedForm(placement, task, reload) {
+async function openPlacedForm(placement, task, onSaved) {
   const form = el("form", {});
   // --- Picker for the shared email-account pool --------------------------
   const pickerSelect = document.createElement("select");
@@ -400,15 +397,18 @@ async function openPlacedForm(placement, task, reload) {
       f.appendChild(submitButton("Сохранить", async () => {
         const data = {};
         new FormData(form).forEach((v, k) => data[k] = v);
-        try { await api.markPlaced(placement.id, data); toast("Сохранено", "success"); closeModal(); reload(); }
-        catch (e) { toast(e.message, "error"); }
+        try {
+          const updated = await api.markPlaced(placement.id, data);
+          toast("Сохранено", "success"); closeModal();
+          onSaved(updated);  // update just the row, no full reload
+        } catch (e) { toast(e.message, "error"); }
       }));
       return f;
     })(),
   });
 }
 
-function openProblemForm(placement, reload) {
+function openProblemForm(placement, onSaved) {
   const form = el("form", {});
   form.appendChild(el("div", { class: "field" },
     el("label", {}, "Что пошло не так?"),
@@ -422,7 +422,7 @@ function openProblemForm(placement, reload) {
       f.appendChild(el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"));
       f.appendChild(submitButton("Отправить", async () => {
         const comment = form.querySelector("[name=comment]").value;
-        try { await api.markProblem(placement.id, { comment }); toast("Отмечено", "success"); closeModal(); reload(); }
+        try { await api.markProblem(placement.id, { comment }); toast("Отмечено", "success"); closeModal(); onSaved && onSaved(); }
         catch (e) { toast(e.message, "error"); }
       }, { className: "danger" }));
       return f;

@@ -25,6 +25,10 @@ export async function renderPlanDetails(host, planId) {
 
   const state = { q: "", status: "", geo: "", language: "", assigned_to: "", sort: "id", order: "asc", hide_done: false };
   const selected = new Set();
+  // Maps for targeted in-place row updates (avoid full table reload after
+  // an action — keeps scroll, other selections and filters intact).
+  const rowById = {};   // item id -> <tr>
+  const itemById = {};  // item id -> item object
 
   const headerActions = el("div", { class: "page-actions" },
     el("button", { class: "ghost", onClick: () => api.exportPlan(planId) }, icon("download", { size: 14 }), el("span", {}, "Экспорт CSV")),
@@ -169,6 +173,16 @@ export async function renderPlanDetails(host, planId) {
     return true;
   }
 
+  // Rebuild a single row in place from its (mutated) item object.
+  function refreshRow(id) {
+    const item = itemById[id];
+    const oldRow = rowById[id];
+    if (!item || !oldRow) return;
+    const fresh = itemRow(item);
+    oldRow.replaceWith(fresh);
+    rowById[id] = fresh;
+  }
+
   function renderTable(items) {
     wrap.innerHTML = "";
     if (!items.length) {
@@ -200,7 +214,15 @@ export async function renderPlanDetails(host, planId) {
       el("th", { class: "right" }, ""),
     )));
     const tbody = el("tbody");
-    items.forEach(i => tbody.appendChild(itemRow(i)));
+    // Reset the row/item maps for this render, then fill as we build rows.
+    for (const k in rowById) delete rowById[k];
+    for (const k in itemById) delete itemById[k];
+    items.forEach(i => {
+      const tr = itemRow(i);
+      rowById[i.id] = tr;
+      itemById[i.id] = i;
+      tbody.appendChild(tr);
+    });
     table.appendChild(tbody);
     wrap.appendChild(table);
   }
@@ -246,7 +268,17 @@ export async function renderPlanDetails(host, planId) {
           try { const r = await api.matchOne(i.id); toast(`Подобран донор #${r.donor_id}`, "success"); load(); }
           catch (e) { toast(e.message, "error"); }
         }},
-        isAdmin && { label: "Выбрать вручную…", icon: "target", onClick: () => openDonorPicker(i, load) },
+        isAdmin && { label: "Выбрать вручную…", icon: "target", onClick: () => openDonorPicker(i, (c) => {
+          // Targeted update: attach the chosen donor to this row, no reload.
+          i.selected_donor_id = c.id;
+          i.donor = {
+            id: c.id, donor_url: c.donor_url, domain: c.domain,
+            geo: c.geo, language: c.language, link_type: c.link_type,
+            tr: c.tr, organic_traffic: c.organic_traffic,
+          };
+          if (["new", "problem"].includes(i.status)) i.status = "donor_selected";
+          refreshRow(i.id);
+        }) },
         isAdmin && { label: "Редактировать", icon: "pencil", onClick: () => openItemEditor(i, load, users) },
         i.target_url && { label: "Открыть target", icon: "external", onClick: () => window.open(i.target_url, "_blank") },
         i.result_url && { label: "Открыть результат", icon: "external", onClick: () => window.open(i.result_url, "_blank") },
@@ -270,8 +302,27 @@ export async function renderPlanDetails(host, planId) {
         submitButton("Назначить", async () => {
           const userId = parseInt(form.querySelector("[name=assigned_to]").value || 0);
           if (!userId) { toast("Выберите сотрудника", "error"); return; }
-          try { await api.assign(planId, [...selected], userId); toast("Назначено", "success"); closeModal(); selected.clear(); load(); }
-          catch (e) { toast(e.message, "error"); }
+          const ids = [...selected];
+          try {
+            await api.assign(planId, ids, userId);
+            toast(`Назначено: ${ids.length}`, "success");
+            closeModal();
+            // Targeted update: refresh only the assigned rows in place — no
+            // full reload, scroll & other state preserved.
+            const assignee = users.find(u => u.id === userId);
+            ids.forEach((id) => {
+              const item = itemById[id];
+              const oldRow = rowById[id];
+              if (!item || !oldRow) return;
+              item.assigned_to = userId;
+              item.assignee = assignee ? { id: assignee.id, name: assignee.full_name || assignee.email, email: assignee.email } : item.assignee;
+              if (["new", "donor_selected"].includes(item.status)) item.status = "assigned";
+              const fresh = itemRow(item);
+              oldRow.replaceWith(fresh);
+              rowById[id] = fresh;
+            });
+            selected.clear();
+          } catch (e) { toast(e.message, "error"); }
         }),
       ),
     });
@@ -371,7 +422,7 @@ function distributionBlock(title, rows, limit = 10) {
   return wrap;
 }
 
-async function openDonorPicker(item, reload) {
+async function openDonorPicker(item, onChosen) {
   const body = el("div", {});
   body.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px", marginBottom: "10px" } },
     "Цель: ", el("span", { class: "mono" }, item.target_url || item.target_domain),
@@ -415,14 +466,14 @@ async function openDonorPicker(item, reload) {
       el("td", {}, el("span", { class: "pill" }, c.link_type)),
       el("td", { class: "right tabular mono", style: { color: idx === 0 ? "var(--success)" : "inherit" } }, String(c.score)),
       el("td", { class: "right" },
-        el("button", { class: "small", onClick: async () => {
+        submitButton("Выбрать", async () => {
           try {
             await api.setDonor(item.id, c.id);
             toast(`Назначен: ${c.domain || c.donor_url}`, "success");
             closeModal();
-            reload();
+            onChosen && onChosen(c);  // targeted row update via callback
           } catch (e) { toast(e.message, "error"); }
-        }}, "Выбрать"),
+        }, { className: "small" }),
       ),
     )));
     table.appendChild(tbody);
