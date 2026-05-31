@@ -185,11 +185,13 @@ def mark_placed(
     if not payload.result_url.strip():
         raise HTTPException(status_code=400, detail="Укажите ссылку на результат размещения")
 
-    # Block duplicate placements at the business-rule level
+    # Block duplicate placements at the business-rule level — per ANCHOR
+    # (target_url + anchor_text). The same donor is allowed for other anchors.
     exists = (
         db.query(StopListEntry)
         .filter(
             StopListEntry.target_url == placement.target_url,
+            StopListEntry.anchor_text == (placement.anchor_text or ""),
             StopListEntry.donor_url == placement.donor_url,
         )
         .first()
@@ -197,7 +199,7 @@ def mark_placed(
     if exists and exists.anchor_plan_item_id != placement.anchor_plan_item_id:
         raise HTTPException(
             status_code=409,
-            detail="Эта целевая ссылка уже размещалась на этом доноре (есть в стоп-листе)",
+            detail="Этот анкор уже размещался на этом доноре (есть в стоп-листе)",
         )
 
     placement.result_url = payload.result_url.strip()

@@ -134,21 +134,30 @@ def quality_score(donor: Donor) -> float:
 
 # ---------- core ----------
 
-def _blocked_donor_urls_for_target(db: Session, target_url: str) -> set[str]:
-    """donor_urls that the given target_url is forbidden to use."""
+def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: str = "") -> set[str]:
+    """donor_urls forbidden for THIS anchor (target_url + anchor_text).
+
+    A donor is blocked only within the same anchor: if it was already used
+    for (target_url, anchor_text) it can't be reused for that anchor, but it
+    stays available for other anchors — even ones with the same target_url.
+    """
     if not target_url:
         return set()
     out: set[str] = set()
-    # From stop list
     rows = db.execute(
-        select(StopListEntry.donor_url).where(StopListEntry.target_url == target_url)
+        select(StopListEntry.donor_url).where(
+            and_(
+                StopListEntry.target_url == target_url,
+                StopListEntry.anchor_text == (anchor_text or ""),
+            )
+        )
     ).all()
     out.update(r[0] for r in rows if r[0])
-    # From successful placements (placed/done)
     rows = db.execute(
         select(Placement.donor_url).where(
             and_(
                 Placement.target_url == target_url,
+                Placement.anchor_text == (anchor_text or ""),
                 Placement.status.in_(["placed", "done"]),
             )
         )
@@ -196,7 +205,7 @@ def find_best_donor(
     *,
     exclude_donor_ids: Optional[Iterable[int]] = None,
 ) -> Optional[Donor]:
-    blocked_urls = _blocked_donor_urls_for_target(db, item.target_url)
+    blocked_urls = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
     excluded_ids = set(exclude_donor_ids or [])
     item_geo = normalize_country(item.geo or "")
     item_lang = normalize_language(item.language or "")
@@ -259,32 +268,38 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
     # ---- pre-compute donor pool (cached) ----
     donor_records = _load_donor_pool(db)
 
-    # ---- bulk-load blocked (target_url, donor_url) pairs ----
+    # ---- bulk-load blocked donor_urls, keyed per ANCHOR (target_url, anchor_text) ----
+    # A donor is blocked only within the same anchor, so the key includes the
+    # anchor text — the same donor stays free for other anchors of the same
+    # target_url.
     target_urls = {it.target_url for it in items if it.target_url}
-    blocked_by_target: dict[str, set[str]] = {}
+    blocked_by_anchor: dict[tuple, set[str]] = {}
     if target_urls:
-        for tu, du in db.execute(
-            select(StopListEntry.target_url, StopListEntry.donor_url)
+        for tu, at, du in db.execute(
+            select(StopListEntry.target_url, StopListEntry.anchor_text, StopListEntry.donor_url)
             .where(StopListEntry.target_url.in_(target_urls))
         ).all():
-            blocked_by_target.setdefault(tu, set()).add(du)
-        for tu, du in db.execute(
-            select(Placement.target_url, Placement.donor_url)
+            blocked_by_anchor.setdefault((tu, at or ""), set()).add(du)
+        for tu, at, du in db.execute(
+            select(Placement.target_url, Placement.anchor_text, Placement.donor_url)
             .where(
                 Placement.target_url.in_(target_urls),
                 Placement.status.in_(["placed", "done"]),
             )
         ).all():
-            blocked_by_target.setdefault(tu, set()).add(du)
+            blocked_by_anchor.setdefault((tu, at or ""), set()).add(du)
 
     # ---- per-item pick ----
     matched = 0
     problem_items: list[int] = []
-    used_per_target: dict[str, set[int]] = {}
+    # Within this run, don't suggest the same donor twice for the SAME anchor.
+    # Different anchors (even same target_url) keep independent used-sets.
+    used_per_anchor: dict[tuple, set[int]] = {}
 
     for item in items:
-        used_ids = used_per_target.setdefault(item.target_url, set())
-        blocked_urls = blocked_by_target.get(item.target_url, set())
+        anchor_key = (item.target_url, item.anchor_text or "")
+        used_ids = used_per_anchor.setdefault(anchor_key, set())
+        blocked_urls = blocked_by_anchor.get(anchor_key, set())
         item_geo = normalize_country(item.geo or "")
         item_lang = normalize_language(item.language or "")
         req_lt = (item.required_link_type or "").lower()

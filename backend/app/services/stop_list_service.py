@@ -20,11 +20,17 @@ def register_placement(
     db: Session,
     placement: Placement,
 ) -> StopListEntry | None:
-    """Idempotently add a stop-list entry for a successful placement."""
+    """Idempotently add a stop-list entry for a successful placement.
+
+    The dedup key is the ANCHOR (target_url + anchor_text) + donor_url, so the
+    same donor can legitimately appear once per anchor — including different
+    anchors that share a target_url.
+    """
     if not placement.target_url or not placement.donor_url:
         return None
     existing = db.query(StopListEntry).filter(
         StopListEntry.target_url == placement.target_url,
+        StopListEntry.anchor_text == (placement.anchor_text or ""),
         StopListEntry.donor_url == placement.donor_url,
     ).first()
     if existing:

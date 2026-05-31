@@ -350,7 +350,7 @@ def list_candidates(
     item = db.get(AnchorPlanItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Не найдено")
-    blocked = _blocked_donor_urls_for_target(db, item.target_url)
+    blocked = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
     donors = db.execute(_candidates_query(db, item)).scalars().all()
     eligible = []
     for d in donors:

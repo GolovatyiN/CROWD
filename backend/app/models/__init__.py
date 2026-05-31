@@ -149,9 +149,12 @@ class StopListEntry(Base):
     source_anchor_plan: Mapped[str] = mapped_column(String(255), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
 
+    # Uniqueness is per ANCHOR, not per target_url. The same donor must not
+    # repeat within one anchor (target_url + anchor_text), but the same donor
+    # CAN be reused across different anchors — even ones sharing a target_url.
     __table_args__ = (
-        UniqueConstraint("target_url", "donor_url", name="uq_stoplist_url_donor"),
-        Index("ix_stoplist_target_donor", "target_url", "donor_url"),
+        UniqueConstraint("target_url", "anchor_text", "donor_url", name="uq_stoplist_anchor_donor"),
+        Index("ix_stoplist_target_anchor_donor", "target_url", "anchor_text", "donor_url"),
     )
 
 
