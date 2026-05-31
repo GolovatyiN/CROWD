@@ -210,6 +210,40 @@ export function panelHeader(title, ...actions) {
   );
 }
 
+// ----- Async button with built-in loading state -----
+// Wraps any async click handler: disables the button, swaps its label for a
+// spinner while the promise is in flight, then restores it. The handler keeps
+// full ownership of its own success/error toasts — this only manages the
+// busy UI so the user always sees that something is happening.
+export function busyClick(btn, asyncFn) {
+  btn.addEventListener("click", async (e) => {
+    if (btn.disabled) return;
+    btn.disabled = true;
+    const original = btn.innerHTML;
+    btn.innerHTML = "";
+    btn.appendChild(el("span", { class: "spinner", style: {
+      width: "13px", height: "13px", borderWidth: "2px", borderTopColor: "currentColor",
+    }}));
+    try {
+      await asyncFn(e);
+    } finally {
+      // The handler may have removed the button from the DOM (e.g. closed a
+      // modal) — restoring innerHTML on a detached node is harmless.
+      btn.disabled = false;
+      btn.innerHTML = original;
+    }
+  });
+  return btn;
+}
+
+// Convenience: build a primary action button that auto-shows loading.
+export function submitButton(label, asyncFn, { className = "", iconName } = {}) {
+  const btn = el("button", { class: className, type: "button" },
+    iconName ? icon(iconName, { size: 14 }) : null,
+    el("span", {}, label));
+  return busyClick(btn, asyncFn);
+}
+
 // ----- Sortable table header -----
 export function sortHeader(label, key, state, reload, align = "") {
   const isActive = state.sort === key;

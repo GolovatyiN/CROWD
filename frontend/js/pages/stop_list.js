@@ -37,15 +37,19 @@ export async function renderStopList(host) {
   const wrap = el("div", { class: "table-wrap" });
   host.appendChild(wrap);
 
+  let loadSeq = 0;
   async function load() {
+    const my = ++loadSeq;
     wrap.innerHTML = "";
     wrap.appendChild(tableSkeleton(6, 6));
     const params = { sort: state.sort, order: state.order };
     ["q", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
       const data = await api.stopList(params);
+      if (my !== loadSeq) return;
       renderTable(data);
     } catch (e) {
+      if (my !== loadSeq) return;
       wrap.innerHTML = "";
       wrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message }));
     }

@@ -1,5 +1,5 @@
 import { api } from "../api.js";
-import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader } from "../components/dom.js";
+import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader, submitButton } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -397,12 +397,12 @@ async function openPlacedForm(placement, task, reload) {
     footer: (() => {
       const f = document.createElement("div"); f.className = "row"; f.style.justifyContent = "flex-end"; f.style.gap = "8px";
       f.appendChild(el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"));
-      f.appendChild(el("button", { onClick: async () => {
+      f.appendChild(submitButton("Сохранить", async () => {
         const data = {};
         new FormData(form).forEach((v, k) => data[k] = v);
         try { await api.markPlaced(placement.id, data); toast("Сохранено", "success"); closeModal(); reload(); }
         catch (e) { toast(e.message, "error"); }
-      }}, "Сохранить"));
+      }));
       return f;
     })(),
   });
@@ -420,11 +420,11 @@ function openProblemForm(placement, reload) {
     footer: (() => {
       const f = document.createElement("div"); f.className = "row"; f.style.justifyContent = "flex-end"; f.style.gap = "8px";
       f.appendChild(el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"));
-      f.appendChild(el("button", { class: "danger", onClick: async () => {
+      f.appendChild(submitButton("Отправить", async () => {
         const comment = form.querySelector("[name=comment]").value;
         try { await api.markProblem(placement.id, { comment }); toast("Отмечено", "success"); closeModal(); reload(); }
         catch (e) { toast(e.message, "error"); }
-      }}, "Отправить"));
+      }, { className: "danger" }));
       return f;
     })(),
   });

@@ -1,5 +1,5 @@
 import { api, auth } from "../api.js";
-import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, searchInput, fmtRelative, sortHeader } from "../components/dom.js";
+import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, searchInput, fmtRelative, sortHeader, submitButton } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -8,14 +8,20 @@ const ITEM_STATUSES = ["new", "donor_selected", "assigned", "in_progress", "plac
 
 export async function renderPlanDetails(host, planId) {
   const isAdmin = auth.isAdmin();
-  let plan;
-  try { plan = await api.plan(planId); }
-  catch (e) {
+  // Fetch the plan and the user list in parallel — they're independent, so
+  // one round-trip instead of two serial ones.
+  let plan, users = [];
+  try {
+    const [planRes, usersRes] = await Promise.all([
+      api.plan(planId),
+      api.users().catch(() => []),  // employees may lack access — that's fine
+    ]);
+    plan = planRes;
+    users = usersRes || [];
+  } catch (e) {
     host.appendChild(emptyState({ iconName: "alert", title: "План не найден", desc: e.message }));
     return;
   }
-  let users = [];
-  try { users = await api.users(); } catch { /* employee may not have access */ }
 
   const state = { q: "", status: "", geo: "", language: "", assigned_to: "", sort: "id", order: "asc", hide_done: false };
   const selected = new Set();
@@ -130,18 +136,25 @@ export async function renderPlanDetails(host, planId) {
   const wrap = el("div", { class: "table-wrap" });
   host.appendChild(wrap);
 
+  // Guards against out-of-order responses: if the user types/sorts quickly,
+  // an earlier slow response must not overwrite a later one.
+  let loadSeq = 0;
+
   async function load() {
+    const my = ++loadSeq;
     wrap.innerHTML = "";
     wrap.appendChild(tableSkeleton(8, 8));
     const params = { sort: state.sort, order: state.order };
     ["q", "status", "geo", "language", "assigned_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
       let items = await api.planItems(planId, params);
+      if (my !== loadSeq) return;  // a newer load already started
       if (state.hide_done) {
         items = items.filter(i => !["placed", "done"].includes(i.status));
       }
       renderTable(items);
     } catch (e) {
+      if (my !== loadSeq) return;
       wrap.innerHTML = "";
       wrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message }));
     }
@@ -254,12 +267,12 @@ export async function renderPlanDetails(host, planId) {
       content: form,
       footer: btnRow(
         el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"),
-        el("button", { onClick: async () => {
+        submitButton("Назначить", async () => {
           const userId = parseInt(form.querySelector("[name=assigned_to]").value || 0);
           if (!userId) { toast("Выберите сотрудника", "error"); return; }
           try { await api.assign(planId, [...selected], userId); toast("Назначено", "success"); closeModal(); selected.clear(); load(); }
           catch (e) { toast(e.message, "error"); }
-        }}, "Назначить"),
+        }),
       ),
     });
   }

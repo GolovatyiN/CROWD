@@ -23,18 +23,16 @@ from ..services.matcher import auto_match_plan, find_best_donor, quality_score, 
 router = APIRouter(prefix="/anchor-plans", tags=["anchor_plans"])
 
 
-def _plan_with_stats(db: Session, plan: AnchorPlan) -> dict:
-    rows = (
-        db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
-        .filter(AnchorPlanItem.anchor_plan_id == plan.id)
-        .group_by(AnchorPlanItem.status)
-        .all()
-    )
-    by_status = {s: c for s, c in rows}
+def _stats_from_status_counts(by_status: dict[str, int]) -> dict[str, int]:
     total = sum(by_status.values())
     completed = by_status.get("placed", 0) + by_status.get("done", 0)
     problem = by_status.get("problem", 0) + by_status.get("rejected", 0)
     pending = total - completed - problem
+    return {"total_rows": total, "completed_rows": completed,
+            "pending_rows": pending, "problem_rows": problem}
+
+
+def _plan_payload(plan: AnchorPlan, stats: dict[str, int]) -> dict:
     return {
         "id": plan.id,
         "plan_name": plan.plan_name,
@@ -42,11 +40,19 @@ def _plan_with_stats(db: Session, plan: AnchorPlan) -> dict:
         "status": plan.status,
         "created_by": plan.created_by,
         "created_at": plan.created_at,
-        "total_rows": total,
-        "completed_rows": completed,
-        "pending_rows": pending,
-        "problem_rows": problem,
+        **stats,
     }
+
+
+def _plan_with_stats(db: Session, plan: AnchorPlan) -> dict:
+    """Stats for a single plan (used by the detail endpoint)."""
+    rows = (
+        db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
+        .filter(AnchorPlanItem.anchor_plan_id == plan.id)
+        .group_by(AnchorPlanItem.status)
+        .all()
+    )
+    return _plan_payload(plan, _stats_from_status_counts({s: c for s, c in rows}))
 
 
 PLAN_SORT_FIELDS = {
@@ -66,8 +72,21 @@ def list_plans(
     sort_col = PLAN_SORT_FIELDS.get(sort.lower(), AnchorPlan.created_at)
     direction = sort_col.desc() if order.lower() == "desc" else sort_col.asc()
     plans = db.query(AnchorPlan).order_by(direction).all()
-    # Sort numerical aggregate fields in Python after fetching (small list)
-    enriched = [_plan_with_stats(db, p) for p in plans]
+
+    # Stats for ALL plans in one grouped query instead of one query per plan
+    # (was N+1). Build {plan_id: {status: count}} then derive the rollups.
+    counts_by_plan: dict[int, dict[str, int]] = {}
+    for plan_id, status, cnt in (
+        db.query(AnchorPlanItem.anchor_plan_id, AnchorPlanItem.status, func.count(AnchorPlanItem.id))
+        .group_by(AnchorPlanItem.anchor_plan_id, AnchorPlanItem.status)
+        .all()
+    ):
+        counts_by_plan.setdefault(plan_id, {})[status] = cnt
+
+    enriched = [
+        _plan_payload(p, _stats_from_status_counts(counts_by_plan.get(p.id, {})))
+        for p in plans
+    ]
     numeric_keys = {"total_rows", "completed_rows", "pending_rows", "problem_rows"}
     if sort in numeric_keys:
         enriched.sort(key=lambda x: x[sort], reverse=order.lower() == "desc")

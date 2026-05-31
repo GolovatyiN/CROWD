@@ -95,7 +95,12 @@ export async function renderDonors(host) {
     await loadPage(false);
   }
 
+  // Bumped on every fresh search/filter so a slow first-page response from an
+  // old query can't overwrite the results of a newer one.
+  let loadSeq = 0;
+
   async function loadPage(first) {
+    const my = first ? ++loadSeq : loadSeq;
     if (first) {
       tableWrap.innerHTML = "";
       tableWrap.appendChild(tableSkeleton(6, 9));
@@ -104,11 +109,13 @@ export async function renderDonors(host) {
     const params = paramsForRequest(state);
     try {
       const data = await api.donors(params);
+      if (my !== loadSeq) return;  // superseded by a newer search
       total = data.total;
       loadedItems = loadedItems.concat(data.items);
       renderRows();
       renderPagination();
     } catch (e) {
+      if (my !== loadSeq) return;
       tableWrap.innerHTML = "";
       tableWrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message }));
     }
