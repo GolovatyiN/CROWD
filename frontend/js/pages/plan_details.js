@@ -147,6 +147,15 @@ export async function renderPlanDetails(host, planId) {
     }
   }
 
+  // A row is eligible for bulk "Назначить выбранные" only while it has no
+  // owner yet and isn't finished. Assigned / in-progress / placed rows are
+  // locked — reassignment goes through the per-row Edit dialog.
+  function isSelectable(i) {
+    if (i.assigned_to) return false;
+    if (["placed", "done", "rejected"].includes(i.status)) return false;
+    return true;
+  }
+
   function renderTable(items) {
     wrap.innerHTML = "";
     if (!items.length) {
@@ -154,11 +163,19 @@ export async function renderPlanDetails(host, planId) {
       return;
     }
     const table = el("table");
-    const headerCheckbox = isAdmin ? el("input", { type: "checkbox", onChange: (e) => {
-      selected.clear();
-      if (e.target.checked) items.forEach(i => selected.add(i.id));
-      wrap.querySelectorAll("input.row-check").forEach(c => c.checked = e.target.checked);
-    }}) : "";
+    const selectableItems = items.filter(isSelectable);
+    const headerCheckbox = isAdmin ? el("input", {
+      type: "checkbox",
+      // Disable "select all" entirely if nothing on the page can be assigned.
+      disabled: selectableItems.length ? null : "",
+      title: selectableItems.length ? "Выбрать все неназначенные" : "Нет строк для назначения",
+      onChange: (e) => {
+        selected.clear();
+        // Only ever select rows that are still free to assign.
+        if (e.target.checked) selectableItems.forEach(i => selected.add(i.id));
+        wrap.querySelectorAll("input.row-check:not(:disabled)").forEach(c => c.checked = e.target.checked);
+      },
+    }) : "";
     table.appendChild(el("thead", {}, el("tr", {},
       el("th", { class: "compact left" }, headerCheckbox),
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
@@ -186,10 +203,19 @@ export async function renderPlanDetails(host, planId) {
     const targetText = i.target_url || i.target_domain || "";
     const targetHref = targetText.startsWith("http") ? targetText : (targetText ? "https://" + targetText : "#");
 
+    const selectable = isSelectable(i);
     return el("tr", { style: rowStyle },
-      el("td", { class: "compact left" }, isAdmin ? el("input", { class: "row-check", type: "checkbox", onChange: (e) => {
-        if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
-      }}) : ""),
+      el("td", { class: "compact left" }, isAdmin ? el("input", {
+        class: "row-check",
+        type: "checkbox",
+        // Already-assigned (or finished) rows can't be bulk-assigned — reassign
+        // one-by-one via the row's "Редактировать" action instead.
+        disabled: selectable ? null : "",
+        title: selectable ? null : "Уже назначена — изменить можно через «Редактировать»",
+        onChange: (e) => {
+          if (e.target.checked) selected.add(i.id); else selected.delete(i.id);
+        },
+      }) : ""),
       el("td", { class: "left truncate", title: targetText }, targetText
         ? el("a", { href: targetHref, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, targetText)
         : el("span", { class: "dimmed" }, "—")),
