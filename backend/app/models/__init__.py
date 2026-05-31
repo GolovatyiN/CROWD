@@ -185,6 +185,9 @@ class EmailAccount(Base):
     label: Mapped[str] = mapped_column(String(128), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Which employee this account is issued to. NULL = shared pool, visible
+    # to everyone. Set = belongs to that user only.
+    assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)

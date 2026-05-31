@@ -150,6 +150,7 @@ class EmailAccountBase(BaseModel):
     label: str = ""
     comment: str = ""
     is_active: bool = True
+    assigned_to: Optional[int] = None
 
 
 class EmailAccountCreate(EmailAccountBase):
@@ -162,6 +163,7 @@ class EmailAccountUpdate(BaseModel):
     label: Optional[str] = None
     comment: Optional[str] = None
     is_active: Optional[bool] = None
+    assigned_to: Optional[int] = None
 
 
 class EmailAccountOut(ORMModel):
@@ -171,6 +173,8 @@ class EmailAccountOut(ORMModel):
     label: str
     comment: str
     is_active: bool
+    assigned_to: Optional[int]
+    assignee_name: Optional[str] = None
     created_by: Optional[int]
     created_at: datetime
     usage_count: int = 0
