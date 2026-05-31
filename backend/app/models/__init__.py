@@ -171,6 +171,25 @@ class ImportLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 
+class EmailAccount(Base):
+    """Pool of email/password pairs the team uses to register on donors.
+
+    Distinct from DonorAccount (which records 'username X was used on donor Y').
+    EmailAccount is the source pool — one email may be used across many donors.
+    """
+    __tablename__ = "email_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    password: Mapped[str] = mapped_column(String(255), default="")
+    label: Mapped[str] = mapped_column(String(128), default="")
+    comment: Mapped[str] = mapped_column(Text, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class AuditLog(Base):
     """Append-only journal of sensitive admin actions.
 

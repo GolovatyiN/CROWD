@@ -63,6 +63,12 @@ export const api = {
   // audit
   auditLogs: (params = {}) => request(`/audit-logs?${qs(params)}`),
 
+  // email accounts (shared pool used to sign up on donors)
+  emailAccounts: (params = {}) => request(`/email-accounts?${qs(params)}`),
+  createEmailAccount: (data) => request("/email-accounts", { method: "POST", body: data }),
+  updateEmailAccount: (id, data) => request(`/email-accounts/${id}`, { method: "PATCH", body: data }),
+  deleteEmailAccount: (id) => request(`/email-accounts/${id}`, { method: "DELETE" }),
+
   // donors — paginated
   donors: (params = {}) => request(`/donors?${qs(params)}`),
   createDonor: (data) => request("/donors", { method: "POST", body: data }),

@@ -14,6 +14,7 @@ import { renderStopList } from "./pages/stop_list.js";
 import { renderUsers } from "./pages/users.js";
 import { renderImportExport } from "./pages/import_export.js";
 import { renderAudit } from "./pages/audit.js";
+import { renderEmailAccounts } from "./pages/email_accounts.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { hash: "#/plans", title: "Анкор-планы", icon: "plans", roles: ["admin", "super_admin"], group: "data" },
   { hash: "#/donors", title: "Доноры", icon: "donors", roles: ["admin", "super_admin"], group: "data" },
   { hash: "#/stop-list", title: "Стоп-лист", icon: "stop", roles: ["user", "admin", "super_admin"], group: "data" },
+  { hash: "#/email-accounts", title: "Аккаунты", icon: "user", roles: ["user", "admin", "super_admin"], group: "data" },
   { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "admin" },
   { hash: "#/users", title: "Сотрудники", icon: "users", roles: ["super_admin"], group: "admin" },
   { hash: "#/audit", title: "Журнал действий", icon: "file", roles: ["super_admin"], group: "admin" },
@@ -41,6 +43,7 @@ const ROUTES = [
   { pattern: /^#\/plans\/(\d+)$/, render: (host, m) => renderPlanDetails(host, parseInt(m[1])), roles: ["admin", "super_admin"] },
   { pattern: /^#\/my-tasks$/, render: renderMyTasks, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/stop-list$/, render: renderStopList, roles: ["user", "admin", "super_admin"] },
+  { pattern: /^#\/email-accounts$/, render: renderEmailAccounts, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/users$/, render: renderUsers, roles: ["super_admin"] },
   { pattern: /^#\/audit$/, render: renderAudit, roles: ["super_admin"] },
   { pattern: /^#\/import-export$/, render: renderImportExport, roles: ["admin", "super_admin"] },

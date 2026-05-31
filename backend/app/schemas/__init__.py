@@ -142,6 +142,40 @@ class DonorAccountOut(ORMModel):
     created_at: datetime
 
 
+# ---------- Email accounts (shared pool) ----------
+
+class EmailAccountBase(BaseModel):
+    email: str
+    password: str = ""
+    label: str = ""
+    comment: str = ""
+    is_active: bool = True
+
+
+class EmailAccountCreate(EmailAccountBase):
+    pass
+
+
+class EmailAccountUpdate(BaseModel):
+    email: Optional[str] = None
+    password: Optional[str] = None
+    label: Optional[str] = None
+    comment: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class EmailAccountOut(ORMModel):
+    id: int
+    email: str
+    password: str
+    label: str
+    comment: str
+    is_active: bool
+    created_by: Optional[int]
+    created_at: datetime
+    usage_count: int = 0
+
+
 # ---------- Anchor plans ----------
 
 class AnchorPlanOut(ORMModel):

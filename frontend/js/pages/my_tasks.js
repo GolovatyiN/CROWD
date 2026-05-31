@@ -300,24 +300,63 @@ function passwordRow(pw) {
 
 // ----- Detailed forms (kept for credential edits) -----
 
-function openPlacedForm(placement, task, reload) {
+async function openPlacedForm(placement, task, reload) {
   const form = el("form", {});
-  const fields = [
-    ["result_url", "Ссылка на результат *", true, placement.result_url || "", "url"],
-    ["login_email", "Email для входа", false, placement.login_email || "", "email"],
-    ["login_password", "Пароль", false, placement.login_password || "", "text"],
-    ["account_username", "Имя аккаунта", false, placement.account_username || task?.suggested_account?.account_username || "", "text"],
-  ];
-  for (const [name, label, required, value, type] of fields) {
-    form.appendChild(el("div", { class: "field" },
-      el("label", {}, label),
-      el("input", { name, type, value, required: required ? "" : null }),
-    ));
-  }
-  form.appendChild(el("div", { class: "field" },
-    el("label", {}, "Комментарий"),
-    el("textarea", { name: "comment", rows: 2 }, placement.comment || ""),
-  ));
+  // --- Picker for the shared email-account pool --------------------------
+  const pickerSelect = document.createElement("select");
+  pickerSelect.style.flex = "1";
+  const ph = document.createElement("option");
+  ph.value = ""; ph.textContent = "— выбрать из моих аккаунтов —";
+  pickerSelect.appendChild(ph);
+  pickerSelect.disabled = true;  // enabled when accounts load
+
+  const pickerWrap = el("div", { class: "field" },
+    el("label", {}, "Аккаунт из пула"),
+    el("div", { class: "row", style: { gap: "8px" } },
+      pickerSelect,
+      el("a", { href: "#/email-accounts", target: "_blank", class: "ghost", style: { padding: "0 10px", height: "34px", display: "inline-flex", alignItems: "center", border: "1px solid var(--border)", borderRadius: "var(--r-md)", fontSize: "12.5px" } }, "Управление"),
+    ),
+  );
+  form.appendChild(pickerWrap);
+
+  // --- Editable credentials ---------------------------------------------
+  const emailInput = el("input", { name: "login_email", type: "email", value: placement.login_email || "" });
+  const pwInput = el("input", { name: "login_password", type: "text", value: placement.login_password || "" });
+  const userInput = el("input", { name: "account_username", type: "text", value: placement.account_username || task?.suggested_account?.account_username || "" });
+  const resultInput = el("input", { name: "result_url", type: "url", value: placement.result_url || "", required: "" });
+
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Ссылка на результат *"), resultInput));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Email для входа"), emailInput));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Пароль"), pwInput));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Имя аккаунта (username)"), userInput));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Комментарий"),
+    el("textarea", { name: "comment", rows: 2 }, placement.comment || "")));
+
+  // Wire up the picker to autofill email/password when chosen.
+  pickerSelect.addEventListener("change", (e) => {
+    const picked = accountById[e.target.value];
+    if (picked) {
+      emailInput.value = picked.email;
+      pwInput.value = picked.password || "";
+    }
+  });
+
+  // Load accounts in background; once arrived, populate the dropdown.
+  const accountById = {};
+  api.emailAccounts({ is_active: true, sort: "email", order: "asc" }).then(accounts => {
+    accounts.forEach(a => {
+      accountById[String(a.id)] = a;
+      const opt = document.createElement("option");
+      opt.value = String(a.id);
+      opt.textContent = a.label ? `${a.email}  ·  ${a.label}` : a.email;
+      pickerSelect.appendChild(opt);
+    });
+    pickerSelect.disabled = false;
+    if (!accounts.length) {
+      ph.textContent = "— нет сохранённых аккаунтов —";
+    }
+  }).catch(() => {});
+
   openModal({
     title: "Отметить размещение",
     content: form,
