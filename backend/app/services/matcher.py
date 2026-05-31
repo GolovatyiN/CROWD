@@ -68,7 +68,12 @@ def _load_donor_pool(db: Session) -> list[dict]:
         records.append({
             "id": d_id,
             "donor_url": d_url,
+            # Keep both the raw value and the normalised code. A non-empty raw
+            # geo that fails to normalise must NOT be treated as "worldwide" —
+            # that bug let Bosnian/Macedonian donors match Austrian targets.
+            "geo_raw": (d_geo or "").strip(),
             "geo_norm": normalize_country(d_geo or ""),
+            "lang_raw": (d_lang or "").strip(),
             "lang_norm": normalize_language(d_lang or ""),
             "link_type": (d_lt or "").lower(),
             "score": score,
@@ -164,12 +169,15 @@ def _geo_compatible(item_geo_norm: str, donor_geo: str) -> bool:
     """True if the donor's geo can serve the item.
 
     - If the item has no geo, anything is fine.
-    - If the donor has no geo (worldwide), it's fine too.
-    - Otherwise both must normalise to the same ISO-2 country code.
+    - If the donor has a genuinely empty geo (worldwide), it's fine too.
+    - Otherwise the donor's geo must normalise to the item's country.
+      A non-empty geo we can't normalise is treated as a mismatch — we do
+      NOT assume "unknown == worldwide" (that put Bosnian donors on Austrian
+      targets).
     """
     if not item_geo_norm:
         return True
-    if not donor_geo:
+    if not (donor_geo or "").strip():
         return True
     return normalize_country(donor_geo) == item_geo_norm
 
@@ -177,7 +185,7 @@ def _geo_compatible(item_geo_norm: str, donor_geo: str) -> bool:
 def _lang_compatible(item_lang_norm: str, donor_lang: str) -> bool:
     if not item_lang_norm:
         return True
-    if not donor_lang:
+    if not (donor_lang or "").strip():
         return True
     return normalize_language(donor_lang) == item_lang_norm
 
@@ -296,10 +304,13 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
             if require_lt and d["link_type"] != req_lt and d["link_type"] != "mixed":
                 dropped_link += 1
                 continue
-            if item_geo and d["geo_norm"] and d["geo_norm"] != item_geo:
+            # GEO: a donor matches only if it's worldwide (no geo at all) OR
+            # its geo resolves to the item's country. A donor that DOES carry
+            # a geo we couldn't normalise is NOT a wildcard — exclude it.
+            if item_geo and d["geo_raw"] and d["geo_norm"] != item_geo:
                 dropped_geo += 1
                 continue
-            if item_lang and d["lang_norm"] and d["lang_norm"] != item_lang:
+            if item_lang and d["lang_raw"] and d["lang_norm"] != item_lang:
                 dropped_lang += 1
                 continue
             passed_filters += 1
