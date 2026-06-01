@@ -282,11 +282,16 @@ input[type="file"] {
    ============================================================= */
 .layout {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr;
+  /* minmax(0, 1fr) is critical: a plain 1fr track has min-width:auto and
+     refuses to shrink below its content's intrinsic size, so a wide table
+     would stretch the whole page and push the sticky sidebar off-screen on
+     horizontal scroll. minmax(0,...) lets the content column shrink so wide
+     tables scroll inside .table-wrap instead of the page. */
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
   min-height: 100vh;
   transition: grid-template-columns var(--t-slow);
 }
-.layout.collapsed { grid-template-columns: var(--sidebar-w-collapsed) 1fr; }
+.layout.collapsed { grid-template-columns: var(--sidebar-w-collapsed) minmax(0, 1fr); }
 
 /* =============================================================
    Sidebar
@@ -455,6 +460,9 @@ input[type="file"] {
   padding: 24px 32px 80px;
   max-width: 1480px;
   width: 100%;
+  /* Belt-and-suspenders with minmax(0,1fr): lets this grid column shrink so
+     a wide .table-wrap scrolls internally instead of widening the page. */
+  min-width: 0;
 }
 .page-header {
   display: flex; align-items: flex-start; justify-content: space-between;
