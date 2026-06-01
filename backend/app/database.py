@@ -20,14 +20,19 @@ if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
     engine_kwargs = {"connect_args": connect_args}
 else:
-    # Tuned for serverless Postgres (Neon).
-    # pool_size keeps a few warm connections — avoids TCP+TLS handshake on
-    # every request (each handshake ~200-300ms over a transatlantic link).
+    # Pooling tuned to keep connections warm and avoid frequent reconnects —
+    # establishing a fresh Postgres connection (TCP + TLS + auth) is the most
+    # likely cause of multi-second first-request latency.
+    #   pool_pre_ping  — cheaply validate a connection on checkout; drops dead
+    #                    ones (e.g. after a Neon suspend) without erroring.
+    #   pool_recycle   — was 300s, which forced a reconnect every 5 minutes.
+    #                    Raised to 30 min so warm connections are reused for
+    #                    much longer; pre_ping still catches any that died.
     engine_kwargs = {
         "pool_size": 10,
         "max_overflow": 10,
         "pool_pre_ping": True,
-        "pool_recycle": 300,
+        "pool_recycle": 1800,
     }
 
 engine = create_engine(DATABASE_URL, **engine_kwargs)

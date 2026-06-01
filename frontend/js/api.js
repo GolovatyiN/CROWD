@@ -49,16 +49,34 @@ async function request(path, opts = {}) {
   return res.text();
 }
 
+// ---- tiny short-TTL GET cache ----
+// Session-stable lookups (e.g. the employee list, used on several pages) are
+// re-fetched on every navigation today. Caching them for a few seconds cuts
+// redundant round-trips when hopping between tabs, without risking stale data
+// — any mutation calls cacheInvalidate() to drop the relevant entries.
+const _cache = new Map();
+function cacheInvalidate(prefix) {
+  for (const k of [..._cache.keys()]) if (k.startsWith(prefix)) _cache.delete(k);
+}
+async function cachedRequest(path, ttlMs) {
+  const hit = _cache.get(path);
+  if (hit && Date.now() - hit.at < ttlMs) return hit.data;
+  const data = await request(path);
+  _cache.set(path, { at: Date.now(), data });
+  return data;
+}
+
 export const api = {
   // auth
   login: (email, password) => request("/auth/login", { method: "POST", body: { email, password } }),
   me: () => request("/auth/me"),
 
-  // users
-  users: (params = {}) => request(`/users?${qs(params)}`),
-  createUser: (data) => request("/users", { method: "POST", body: data }),
-  updateUser: (id, data) => request(`/users/${id}`, { method: "PATCH", body: data }),
-  deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
+  // users — cached 30s (employee roster changes rarely; reused as a lookup
+  // on plan details, accounts and the users page). Mutations invalidate it.
+  users: (params = {}) => cachedRequest(`/users?${qs(params)}`, 30000),
+  createUser: (data) => request("/users", { method: "POST", body: data }).then(r => { cacheInvalidate("/users"); return r; }),
+  updateUser: (id, data) => request(`/users/${id}`, { method: "PATCH", body: data }).then(r => { cacheInvalidate("/users"); return r; }),
+  deactivateUser: (id) => request(`/users/${id}`, { method: "DELETE" }).then(r => { cacheInvalidate("/users"); return r; }),
 
   // audit
   auditLogs: (params = {}) => request(`/audit-logs?${qs(params)}`),
