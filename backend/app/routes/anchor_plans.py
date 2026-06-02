@@ -65,7 +65,7 @@ PLAN_SORT_FIELDS = {
 @router.get("", response_model=list[AnchorPlanOut])
 def list_plans(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
     sort: str = "created_at",
     order: str = "desc",
 ):
@@ -94,7 +94,7 @@ def list_plans(
 
 
 @router.get("/{plan_id}", response_model=AnchorPlanOut)
-def get_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def get_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     plan = db.get(AnchorPlan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Не найдено")
@@ -131,7 +131,7 @@ ITEM_SORT_FIELDS = {
 def list_items(
     plan_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
     q: Optional[str] = None,
     status: Optional[str] = None,
     geo: Optional[str] = None,
@@ -343,7 +343,7 @@ def match_one_item(item_id: int, db: Session = Depends(get_db), _: User = Depend
 def list_candidates(
     item_id: int,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
     limit: int = 30,
 ):
     """Return top candidate donors for a single plan item, applying the matcher's rules."""
@@ -423,7 +423,7 @@ def assign_items(
 
 
 @router.get("/{plan_id}/export")
-def export_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def export_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     items = db.query(AnchorPlanItem).filter(AnchorPlanItem.anchor_plan_id == plan_id).all()
     csv_data = plan_items_to_csv(items)
     return StreamingResponse(

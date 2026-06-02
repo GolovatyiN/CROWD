@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user
+from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models import (
     AnchorPlan,
@@ -19,7 +19,7 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats")
-def stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Heavy endpoint — consolidate into a small number of aggregated queries.
 
     Prior version fired ~30 small SELECTs (one per stat, one per day for the

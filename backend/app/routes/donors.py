@@ -77,7 +77,7 @@ def _apply_donor_filters(query, *, q, geo, language, link_type, min_tr, min_traf
 @router.get("")
 def list_donors(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
     q: Optional[str] = None,
     geo: Optional[str] = None,
     language: Optional[str] = None,
@@ -127,6 +127,7 @@ def create_donor(payload: DonorCreate, db: Session = Depends(get_db), user: User
     db.add(donor)
     db.commit()
     db.refresh(donor)
+    invalidate_donor_cache()  # new donor must be visible to the matcher at once
     return donor
 
 
@@ -142,6 +143,7 @@ def update_donor(donor_id: int, payload: DonorUpdate, db: Session = Depends(get_
         donor.domain = extract_domain(donor.donor_url)
     db.commit()
     db.refresh(donor)
+    invalidate_donor_cache()  # geo/lang/active changes affect matching
     return donor
 
 
@@ -152,6 +154,7 @@ def deactivate_donor(donor_id: int, db: Session = Depends(get_db), _: User = Dep
         raise HTTPException(status_code=404, detail="Донор не найден")
     donor.is_active = False
     db.commit()
+    invalidate_donor_cache()
     return {"ok": True}
 
 
@@ -162,6 +165,7 @@ def bulk_deactivate(payload: dict = Body(...), db: Session = Depends(get_db), _:
         raise HTTPException(status_code=400, detail="Передайте список ids")
     updated = db.query(Donor).filter(Donor.id.in_(ids)).update({Donor.is_active: False}, synchronize_session=False)
     db.commit()
+    invalidate_donor_cache()
     return {"updated": updated}
 
 
@@ -172,11 +176,12 @@ def bulk_activate(payload: dict = Body(...), db: Session = Depends(get_db), _: U
         raise HTTPException(status_code=400, detail="Передайте список ids")
     updated = db.query(Donor).filter(Donor.id.in_(ids)).update({Donor.is_active: True}, synchronize_session=False)
     db.commit()
+    invalidate_donor_cache()
     return {"updated": updated}
 
 
 @router.get("/stats")
-def donors_stats(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def donors_stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Quick health-check of the donor pool — counts per GEO / language /
     link_type. Helps the admin see why the matcher might say 'no GEO=SK
     donors': they can verify their base really has no Slovak donors.
@@ -212,7 +217,7 @@ def donors_stats(db: Session = Depends(get_db), _: User = Depends(get_current_us
 
 
 @router.get("/{donor_id}/usage")
-def donor_usage(donor_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def donor_usage(donor_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     donor = db.get(Donor, donor_id)
     if not donor:
         raise HTTPException(status_code=404, detail="Донор не найден")
@@ -244,7 +249,7 @@ def _account_out(acc: DonorAccount, usage_map: dict[int, int]) -> dict:
 
 
 @router.get("/{donor_id}/accounts")
-def list_accounts(donor_id: int, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def list_accounts(donor_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     accounts = db.query(DonorAccount).filter(DonorAccount.donor_id == donor_id).order_by(DonorAccount.id.asc()).all()
     usage_map = account_usage(db, donor_id)
     return [_account_out(a, usage_map) for a in accounts]
@@ -255,7 +260,7 @@ def create_account(
     donor_id: int,
     payload: DonorAccountCreate,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin),
 ):
     if payload.donor_id != donor_id:
         raise HTTPException(status_code=400, detail="donor_id не совпадает")
