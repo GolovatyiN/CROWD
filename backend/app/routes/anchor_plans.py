@@ -3,12 +3,12 @@ import io
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update as sa_update
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..models import AnchorPlan, AnchorPlanItem, Donor, User
+from ..models import AnchorPlan, AnchorPlanItem, Donor, Placement, StopListEntry, User
 from ..schemas import (
     AnchorPlanItemOut,
     AnchorPlanItemUpdate,
@@ -103,10 +103,35 @@ def get_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(requ
 
 @router.delete("/{plan_id}")
 def delete_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Delete a plan and its rows fast and safely.
+
+    Two problems the naive `db.delete(plan)` hit on a real plan:
+      1. FK violation — placements / stop-list rows reference the plan's items
+         (anchor_plan_item_id has no ON DELETE rule), so deleting items errors.
+      2. Slowness — ORM cascade loads & deletes 1900+ items one-by-one.
+
+    Fix: detach history (NULL the back-reference, keep the rows — the stop-list
+    is a permanent 'donor used' record and placements are work history), then
+    bulk-delete the items and the plan in a handful of statements.
+    """
     plan = db.get(AnchorPlan, plan_id)
     if not plan:
         raise HTTPException(status_code=404, detail="Не найдено")
-    db.delete(plan)
+
+    item_ids = [r[0] for r in db.query(AnchorPlanItem.id).filter(AnchorPlanItem.anchor_plan_id == plan_id).all()]
+    if item_ids:
+        # Preserve history but drop the dangling FK so the items can be removed.
+        db.execute(
+            sa_update(Placement).where(Placement.anchor_plan_item_id.in_(item_ids))
+            .values(anchor_plan_item_id=None)
+        )
+        db.execute(
+            sa_update(StopListEntry).where(StopListEntry.anchor_plan_item_id.in_(item_ids))
+            .values(anchor_plan_item_id=None)
+        )
+        db.query(AnchorPlanItem).filter(AnchorPlanItem.anchor_plan_id == plan_id).delete(synchronize_session=False)
+
+    db.query(AnchorPlan).filter(AnchorPlan.id == plan_id).delete(synchronize_session=False)
     db.commit()
     return {"ok": True}
 
