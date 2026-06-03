@@ -17,6 +17,7 @@ from ..schemas import (
     AutoMatchResult,
     ImportPreview,
 )
+from ..services import audit
 from ..services.importer import import_anchor_plan, plan_items_to_csv
 from ..services.matcher import auto_match_plan, find_best_donor, quality_score, _blocked_donor_urls_for_target, _candidates_query, link_type_compatible
 
@@ -121,7 +122,7 @@ def update_plan(plan_id: int, payload: dict = Body(...), db: Session = Depends(g
 
 
 @router.delete("/{plan_id}")
-def delete_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_plan(plan_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     """Delete a plan and its rows fast and safely.
 
     Two problems the naive `db.delete(plan)` hit on a real plan:
@@ -150,6 +151,11 @@ def delete_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(r
         )
         db.query(AnchorPlanItem).filter(AnchorPlanItem.anchor_plan_id == plan_id).delete(synchronize_session=False)
 
+    audit.log(
+        db, actor, "plan.delete",
+        target_id=plan_id, target_label=plan.plan_name or f"План #{plan_id}",
+        строк=len(item_ids),
+    )
     db.query(AnchorPlan).filter(AnchorPlan.id == plan_id).delete(synchronize_session=False)
     db.commit()
     return {"ok": True}
@@ -288,6 +294,12 @@ async def import_plan(
         result = import_anchor_plan(db, content, file.filename or "plan", plan_name, user.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    audit.log(
+        db, user, "plan.import",
+        target_id=getattr(result, "plan_id", None),
+        target_label=plan_name or file.filename or "план",
+        строк=getattr(result, "rows_inserted", 0),
+    )
     db.commit()
     return result
 

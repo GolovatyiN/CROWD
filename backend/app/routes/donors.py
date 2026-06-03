@@ -18,6 +18,7 @@ from ..schemas import (
     DonorUpdate,
     ImportPreview,
 )
+from ..services import audit
 from ..services.importer import donors_to_csv, import_donors
 from ..services.matcher import account_usage, extract_domain, invalidate_donor_cache
 from ..services.geo import normalize_country, normalize_language
@@ -148,22 +149,24 @@ def update_donor(donor_id: int, payload: DonorUpdate, db: Session = Depends(get_
 
 
 @router.delete("/{donor_id}")
-def deactivate_donor(donor_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def deactivate_donor(donor_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     donor = db.get(Donor, donor_id)
     if not donor:
         raise HTTPException(status_code=404, detail="Донор не найден")
     donor.is_active = False
+    audit.log(db, actor, "donor.deactivate", target_id=donor.id, target_label=donor.domain or donor.donor_url)
     db.commit()
     invalidate_donor_cache()
     return {"ok": True}
 
 
 @router.post("/bulk-deactivate")
-def bulk_deactivate(payload: dict = Body(...), db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def bulk_deactivate(payload: dict = Body(...), db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     ids = payload.get("ids") or []
     if not ids:
         raise HTTPException(status_code=400, detail="Передайте список ids")
     updated = db.query(Donor).filter(Donor.id.in_(ids)).update({Donor.is_active: False}, synchronize_session=False)
+    audit.log(db, actor, "donor.bulk_deactivate", target_label=f"{updated} доноров", количество=updated)
     db.commit()
     invalidate_donor_cache()
     return {"updated": updated}
@@ -181,7 +184,7 @@ def bulk_activate(payload: dict = Body(...), db: Session = Depends(get_db), _: U
 
 
 @router.post("/bulk-delete")
-def bulk_delete(payload: dict = Body(...), db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def bulk_delete(payload: dict = Body(...), db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     """Hard-delete donors — either a given list of ids, or the whole base
     (`all: true`). Donor metrics are heavy and users re-import fresh files,
     so a real delete (not just deactivate) is what's wanted.
@@ -210,6 +213,12 @@ def bulk_delete(payload: dict = Body(...), db: Session = Depends(get_db), _: Use
         db.query(DonorAccount).filter(DonorAccount.donor_id.in_(ids)).delete(synchronize_session=False)
         deleted = db.query(Donor).filter(Donor.id.in_(ids)).delete(synchronize_session=False)
 
+    audit.log(
+        db, actor, "donor.bulk_delete",
+        target_label=f"{deleted} доноров",
+        количество=deleted,
+        область=("вся база" if delete_all else "выбранные"),
+    )
     db.commit()
     invalidate_donor_cache()
     return {"deleted": deleted}
@@ -372,6 +381,13 @@ async def import_donors_route(
         raise HTTPException(status_code=400, detail="Файл пустой")
     try:
         result = import_donors(db, content, file.filename or "donors", user.id)
+        audit.log(
+            db, user, "donor.import",
+            target_label=file.filename or "donors",
+            добавлено=getattr(result, "rows_inserted", 0),
+            обновлено=getattr(result, "rows_updated", 0),
+            ошибок=getattr(result, "rows_failed", 0),
+        )
         db.commit()
         invalidate_donor_cache()
     except ValueError as e:

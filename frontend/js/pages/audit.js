@@ -9,6 +9,15 @@ const ACTION_LABELS = {
   "user.role_change": "Смена роли",
   "user.activate": "Активация",
   "user.deactivate": "Деактивация",
+  "donor.import": "Импорт доноров",
+  "donor.deactivate": "Деактивация донора",
+  "donor.bulk_deactivate": "Массовая деактивация доноров",
+  "donor.bulk_delete": "Удаление доноров",
+  "plan.import": "Импорт анкор-плана",
+  "plan.delete": "Удаление анкор-плана",
+  "stoplist.import": "Импорт стоп-листа",
+  "stoplist.delete": "Удаление из стоп-листа",
+  "system.reset": "Сброс всех данных",
 };
 
 const ACTION_VARIANT = {
@@ -17,6 +26,15 @@ const ACTION_VARIANT = {
   "user.role_change": "violet",
   "user.activate": "success",
   "user.deactivate": "error",
+  "donor.import": "info",
+  "donor.deactivate": "warning",
+  "donor.bulk_deactivate": "warning",
+  "donor.bulk_delete": "error",
+  "plan.import": "info",
+  "plan.delete": "error",
+  "stoplist.import": "info",
+  "stoplist.delete": "warning",
+  "system.reset": "error",
 };
 
 export async function renderAudit(host) {
@@ -25,7 +43,7 @@ export async function renderAudit(host) {
   host.appendChild(el("div", { class: "page-header" },
     el("div", {},
       el("div", { class: "page-title" }, "Журнал действий"),
-      el("div", { class: "page-subtitle" }, "Все изменения по сотрудникам — кто, что и когда"),
+      el("div", { class: "page-subtitle" }, "Действия по системе: сотрудники, доноры, планы, импорты и удаления — кто, что и когда"),
     ),
   ));
 

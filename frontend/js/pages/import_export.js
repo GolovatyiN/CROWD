@@ -1,6 +1,7 @@
-import { api } from "../api.js";
-import { el, emptyState } from "../components/dom.js";
+import { api, auth } from "../api.js";
+import { el, emptyState, submitButton } from "../components/dom.js";
 import { icon } from "../components/icons.js";
+import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
 
 export async function renderImportExport(host) {
@@ -31,6 +32,64 @@ export async function renderImportExport(host) {
     importFn: (file) => api.importStopList(file),
     exportFn: () => api.exportStopList(),
   }));
+
+  // Reset all data — Super-Admin only. Wipes operational data so the
+  // dashboard goes back to zero, without a manual SQL trip.
+  if (auth.isSuperAdmin()) {
+    host.appendChild(dangerZone());
+  }
+}
+
+function dangerZone() {
+  const wrap = el("div", { class: "panel", style: { borderColor: "var(--error)" } });
+  wrap.appendChild(el("div", { class: "panel-header" },
+    el("div", { class: "panel-title", style: { color: "var(--error)" } },
+      icon("alert", { size: 15 }), el("span", { style: { marginLeft: "6px" } }, "Опасная зона")),
+  ));
+  wrap.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px", marginBottom: "14px" } },
+    "Полностью очищает доноров, анкор-планы, размещения, стоп-лист и почтовые аккаунты — дашборд обнуляется. Сотрудники и журнал действий сохраняются. Действие необратимо."));
+  wrap.appendChild(el("button", { class: "danger", type: "button", onClick: openResetModal },
+    icon("trash", { size: 14 }), el("span", {}, "Сбросить все данные")));
+  return wrap;
+}
+
+const RESET_WORD = "СБРОСИТЬ";
+
+function openResetModal() {
+  const input = el("input", { type: "text", placeholder: `Введите ${RESET_WORD}`, autocomplete: "off" });
+
+  const confirmBtn = submitButton("Сбросить всё", async () => {
+    try {
+      const r = await api.resetAllData();
+      const d = (r && r.deleted) || {};
+      toast(`Система очищена: доноров ${d.donors || 0}, планов ${d.plans || 0}, размещений ${d.placements || 0}`, "success");
+      closeModal();
+      location.hash = "#/dashboard";
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  }, { className: "danger", iconName: "trash" });
+  confirmBtn.disabled = true;
+
+  input.addEventListener("input", () => {
+    confirmBtn.disabled = input.value.trim() !== RESET_WORD;
+  });
+
+  const content = el("div", {},
+    el("div", { style: { fontSize: "13px", marginBottom: "12px", lineHeight: 1.5 } },
+      "Будут безвозвратно удалены ", el("b", {}, "все доноры, анкор-планы, размещения, стоп-лист и почтовые аккаунты"), ". ",
+      "Сотрудники и журнал действий сохранятся. Для подтверждения введите ",
+      el("b", { style: { color: "var(--error)" } }, RESET_WORD), " ниже."),
+    el("div", { class: "field", style: { marginBottom: 0 } }, el("label", {}, "Подтверждение"), input),
+  );
+
+  const footer = el("div", { class: "row", style: { justifyContent: "flex-end", gap: "8px" } },
+    el("button", { class: "ghost", type: "button", onClick: () => closeModal() }, "Отмена"),
+    confirmBtn,
+  );
+
+  openModal({ title: "Сбросить все данные?", content, footer });
+  setTimeout(() => input.focus(), 50);
 }
 
 function section({ title, hint, importFn, exportFn, extraFields = [] }) {

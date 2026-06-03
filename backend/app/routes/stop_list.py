@@ -11,6 +11,7 @@ from ..auth import get_current_user, require_admin
 from ..database import get_db
 from ..models import StopListEntry, User
 from ..schemas import ImportPreview, StopListOut
+from ..services import audit
 from ..services.importer import import_stop_list, stop_list_to_csv
 
 router = APIRouter(prefix="/stop-list", tags=["stop_list"])
@@ -83,6 +84,11 @@ async def import_route(
         result = import_stop_list(db, content, file.filename or "stop_list", user.id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    audit.log(
+        db, user, "stoplist.import",
+        target_label=file.filename or "стоп-лист",
+        добавлено=getattr(result, "rows_inserted", 0),
+    )
     db.commit()
     return result
 
@@ -99,10 +105,11 @@ def export_route(db: Session = Depends(get_db), _: User = Depends(require_admin)
 
 
 @router.delete("/{entry_id}")
-def delete_entry(entry_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def delete_entry(entry_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
     entry = db.get(StopListEntry, entry_id)
     if not entry:
         raise HTTPException(status_code=404, detail="Запись не найдена")
+    audit.log(db, actor, "stoplist.delete", target_id=entry.id, target_label=entry.donor_url or "")
     db.delete(entry)
     db.commit()
     return {"ok": True}

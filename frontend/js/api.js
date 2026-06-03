@@ -137,6 +137,14 @@ export const api = {
 
   // dashboard
   stats: () => request("/dashboard/stats"),
+
+  // admin maintenance
+  resetAllData: () => request("/admin/reset-data", { method: "POST" }).then(r => {
+    // The reset wipes everything except users — drop any cached GETs so the
+    // next page load reflects the empty state.
+    cacheInvalidate("/");
+    return r;
+  }),
 };
 
 function qs(params) {
