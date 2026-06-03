@@ -31,8 +31,23 @@ export async function renderDonors(host) {
       isAdmin && el("button", { class: "ghost", onClick: () => api.exportDonors() }, icon("download", { size: 14 }), el("span", {}, "Экспорт")),
       isAdmin && el("button", { class: "ghost", onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импорт")),
       isAdmin && el("button", { onClick: () => openDonorForm(null, refresh) }, icon("plus", { size: 14 }), el("span", {}, "Новый донор")),
+      isAdmin && el("button", { class: "danger ghost", onClick: () => deleteAllDonors() }, icon("trash", { size: 14 }), el("span", {}, "Удалить всё")),
     ),
   ));
+
+  // Wipe the entire donor base — double confirm because it's destructive and
+  // unbounded (ignores filters: removes everything).
+  async function deleteAllDonors() {
+    if (!total && !loadedItems.length) { toast("База доноров уже пуста", "warning"); return; }
+    if (!confirm(`Удалить ВСЕХ доноров (${total})? История размещений и стоп-лист сохранятся, но связь с донорами потеряется.`)) return;
+    if (!confirm("Точно удалить всю базу доноров? Это нельзя отменить.")) return;
+    try {
+      const r = await api.deleteAllDonors();
+      toast(`Удалено доноров: ${r.deleted}`, "success");
+      selected.clear();
+      refresh();
+    } catch (e) { toast(e.message, "error"); }
+  }
 
   const sb = el("div", { class: "search-bar" });
   sb.appendChild(searchInput({
@@ -73,11 +88,16 @@ export async function renderDonors(host) {
           try { const r = await api.bulkActivateDonors([...selected]); toast(`Активировано: ${r.updated}`, "success"); selected.clear(); refresh(); }
           catch (e) { toast(e.message, "error"); }
         }}, icon("check", { size: 13 }), el("span", {}, "Активировать")),
-        el("button", { class: "danger ghost small", onClick: async () => {
+        el("button", { class: "ghost small", onClick: async () => {
           if (!confirm(`Деактивировать ${selected.size} доноров?`)) return;
           try { const r = await api.bulkDeactivateDonors([...selected]); toast(`Деактивировано: ${r.updated}`, "success"); selected.clear(); refresh(); }
           catch (e) { toast(e.message, "error"); }
-        }}, icon("trash", { size: 13 }), el("span", {}, "Деактивировать")),
+        }}, icon("eyeOff", { size: 13 }), el("span", {}, "Деактивировать")),
+        el("button", { class: "danger ghost small", onClick: async () => {
+          if (!confirm(`Удалить ${selected.size} доноров безвозвратно? Стоп-лист и история размещений сохранятся.`)) return;
+          try { const r = await api.bulkDeleteDonors([...selected]); toast(`Удалено: ${r.deleted}`, "success"); selected.clear(); refresh(); }
+          catch (e) { toast(e.message, "error"); }
+        }}, icon("trash", { size: 13 }), el("span", {}, "Удалить")),
       ) : null,
     ));
   }

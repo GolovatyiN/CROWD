@@ -3,12 +3,12 @@ import io
 
 from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, update as sa_update
 from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..models import Donor, DonorAccount, Placement, StopListEntry, User
+from ..models import AnchorPlanItem, Donor, DonorAccount, Placement, StopListEntry, User
 from ..schemas import (
     DonorAccountCreate,
     DonorAccountOut,
@@ -178,6 +178,41 @@ def bulk_activate(payload: dict = Body(...), db: Session = Depends(get_db), _: U
     db.commit()
     invalidate_donor_cache()
     return {"updated": updated}
+
+
+@router.post("/bulk-delete")
+def bulk_delete(payload: dict = Body(...), db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Hard-delete donors — either a given list of ids, or the whole base
+    (`all: true`). Donor metrics are heavy and users re-import fresh files,
+    so a real delete (not just deactivate) is what's wanted.
+
+    References are detached first to avoid FK violations while preserving
+    history: placements & stop-list keep their `donor_url` (the canonical
+    field) and just lose the now-dangling `donor_id`; plan items lose their
+    `selected_donor_id` (the donor no longer exists, so the row needs
+    rematching). Donor accounts are removed with their donor.
+    """
+    delete_all = bool(payload.get("all"))
+    ids = payload.get("ids") or []
+    if not delete_all and not ids:
+        raise HTTPException(status_code=400, detail="Передайте список ids или all=true")
+
+    if delete_all:
+        db.execute(sa_update(AnchorPlanItem).where(AnchorPlanItem.selected_donor_id.isnot(None)).values(selected_donor_id=None))
+        db.execute(sa_update(Placement).where(Placement.donor_id.isnot(None)).values(donor_id=None))
+        db.execute(sa_update(StopListEntry).where(StopListEntry.donor_id.isnot(None)).values(donor_id=None))
+        db.query(DonorAccount).delete(synchronize_session=False)
+        deleted = db.query(Donor).delete(synchronize_session=False)
+    else:
+        db.execute(sa_update(AnchorPlanItem).where(AnchorPlanItem.selected_donor_id.in_(ids)).values(selected_donor_id=None))
+        db.execute(sa_update(Placement).where(Placement.donor_id.in_(ids)).values(donor_id=None))
+        db.execute(sa_update(StopListEntry).where(StopListEntry.donor_id.in_(ids)).values(donor_id=None))
+        db.query(DonorAccount).filter(DonorAccount.donor_id.in_(ids)).delete(synchronize_session=False)
+        deleted = db.query(Donor).filter(Donor.id.in_(ids)).delete(synchronize_session=False)
+
+    db.commit()
+    invalidate_donor_cache()
+    return {"deleted": deleted}
 
 
 @router.get("/stats")
