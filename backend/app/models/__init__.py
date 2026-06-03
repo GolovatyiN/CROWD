@@ -107,6 +107,13 @@ class AnchorPlanItem(Base):
 
     plan: Mapped[AnchorPlan] = relationship(back_populates="items")
 
+    # Composite indexes for the two hot aggregations over this (largest) table:
+    # per-plan status counts and the my-tasks view. See migration c3d4e5f6a7b8.
+    __table_args__ = (
+        Index("ix_api_plan_status", "anchor_plan_id", "status"),
+        Index("ix_api_assigned_status", "assigned_to", "status"),
+    )
+
 
 class Placement(Base):
     __tablename__ = "placements"

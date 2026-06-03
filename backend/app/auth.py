@@ -11,7 +11,12 @@ from .config import settings
 from .database import get_db
 from .models import User
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+# bcrypt cost 10 (~2^10 rounds) — still well above brute-force concern for an
+# internal tool, but ~4x faster to verify than the passlib default of 12, which
+# was adding noticeable latency to every login on a shared vCPU. `deprecated`
+# marks any hash whose cost differs as upgradable, so old cost-12 hashes get
+# transparently re-hashed to cost-10 on the next successful login.
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=10)
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 
 
@@ -24,6 +29,19 @@ def verify_password(plain: str, hashed: str) -> bool:
         return pwd_context.verify(plain, hashed)
     except Exception:
         return False
+
+
+def verify_and_maybe_rehash(plain: str, hashed: str) -> tuple[bool, Optional[str]]:
+    """Verify a password and, if its stored hash uses an outdated cost factor,
+    return a freshly computed hash so the caller can upgrade it in place.
+
+    Returns (ok, new_hash_or_None). `new_hash` is None when the existing hash
+    is already current (the common case after the first login).
+    """
+    try:
+        return pwd_context.verify_and_update(plain, hashed)
+    except Exception:
+        return False, None
 
 
 def create_access_token(user_id: int, role: str) -> str:

@@ -13,7 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from starlette.middleware.gzip import GZipMiddleware
 
-from .database import SessionLocal, get_db
+from .database import SessionLocal, engine, get_db
 from .routes import admin, anchor_plans, audit, auth, dashboard, donors, email_accounts, placements, stop_list, users
 
 # Identifies this exact process instance so we can cache-bust the entrypoint
@@ -22,17 +22,18 @@ BUILD_ID = str(int(time.time()))
 
 log = logging.getLogger("crowd.heartbeat")
 
-# Neon free tier suspends compute after 5 minutes of inactivity, and waking
-# it up costs 1-3 seconds on the first request. We ping every 4 minutes to
-# keep it warm — much cheaper than the per-user cold start.
-NEON_HEARTBEAT_INTERVAL = 240  # seconds
+# Keep a pooled DB connection warm. TCP keepalives (see database.py) stop the
+# private-network proxy from reaping idle connections, but a periodic real
+# query is belt-and-suspenders — it also wakes the DB if the platform ever
+# suspends it. 120s is comfortably below any idle-reap window.
+DB_HEARTBEAT_INTERVAL = 120  # seconds
 
 
 async def neon_heartbeat() -> None:
     consecutive_failures = 0
     while True:
         try:
-            await asyncio.sleep(NEON_HEARTBEAT_INTERVAL)
+            await asyncio.sleep(DB_HEARTBEAT_INTERVAL)
             await asyncio.to_thread(_ping_db)
             consecutive_failures = 0
         except asyncio.CancelledError:
@@ -108,11 +109,24 @@ def health():
 
 @app.get("/api/health/db")
 def health_db(db: Session = Depends(get_db)):
-    """Optional deep check — pokes Postgres. Use this for monitoring, not
-    for the deploy gate."""
+    """Optional deep check — pokes Postgres and reports round-trip timing plus
+    pool status. Use this for monitoring / perf debugging, not for the deploy
+    gate. Exposes no secrets (just timings and pool counts)."""
     try:
+        t0 = time.perf_counter()
         db.execute(text("SELECT 1"))
-        return {"ok": True, "db": "up"}
+        first_ms = round((time.perf_counter() - t0) * 1000, 1)
+        # Second query reuses the now-checked-out connection — isolates pure
+        # query latency from any connect / pre-ping cost on the first hit.
+        t1 = time.perf_counter()
+        db.execute(text("SELECT 1"))
+        second_ms = round((time.perf_counter() - t1) * 1000, 1)
+        return {
+            "ok": True,
+            "db": "up",
+            "query_ms": {"first": first_ms, "second": second_ms},
+            "pool": engine.pool.status(),
+        }
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "db": "down", "error": str(e)[:200]}, status_code=503)
 
