@@ -3,6 +3,7 @@ import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, s
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
+import { renamePlan } from "./anchor_plans.js";
 
 const ITEM_STATUSES = ["new", "donor_selected", "assigned", "in_progress", "placed", "rejected", "problem", "done"];
 
@@ -95,11 +96,15 @@ export async function renderPlanDetails(host, planId) {
     return btn;
   }
 
+  const titleEl = el("div", { class: "page-title" }, plan.plan_name);
   host.appendChild(el("div", { class: "page-header" },
     el("div", {},
       el("div", { class: "row", style: { gap: "8px", alignItems: "center" } },
         el("a", { href: "#/plans", class: "subtle", style: { display: "inline-flex", padding: "2px" } }, icon("chevronLeft", { size: 16 })),
-        el("div", { class: "page-title" }, plan.plan_name),
+        titleEl,
+        isAdmin && el("button", { class: "subtle icon small", title: "Переименовать",
+          onClick: () => renamePlan(plan, (newName) => { titleEl.textContent = newName; }),
+        }, icon("pencil", { size: 14 })),
       ),
       el("div", { class: "page-subtitle" }, `${plan.total_rows} строк · готово ${plan.completed_rows} · в работе ${plan.pending_rows} · проблем ${plan.problem_rows}`),
     ),

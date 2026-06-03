@@ -108,6 +108,7 @@ export const api = {
   // plans
   plans: (params = {}) => request(`/anchor-plans?${qs(params)}`),
   plan: (id) => request(`/anchor-plans/${id}`),
+  updatePlan: (id, data) => request(`/anchor-plans/${id}`, { method: "PATCH", body: data }),
   deletePlan: (id) => request(`/anchor-plans/${id}`, { method: "DELETE" }),
   planItems: (id, params = {}) => request(`/anchor-plans/${id}/items?${qs(params)}`),
   updateItem: (id, data) => request(`/anchor-plans/items/${id}`, { method: "PATCH", body: data }),

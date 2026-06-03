@@ -1,7 +1,36 @@
 import { api, auth } from "../api.js";
-import { el, fmtDate, emptyState, tableSkeleton, menuButton, sortHeader } from "../components/dom.js";
+import { el, fmtDate, emptyState, tableSkeleton, menuButton, sortHeader, submitButton } from "../components/dom.js";
 import { icon } from "../components/icons.js";
+import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
+
+// Rename a plan via a small modal. `onDone(newName)` lets callers update the
+// UI without a full reload; falls back to nothing if omitted.
+export function renamePlan(plan, onDone) {
+  const input = el("input", { type: "text", value: plan.plan_name || "", placeholder: "Название плана" });
+  const form = el("form", {}, el("div", { class: "field" }, el("label", {}, "Название анкор-плана"), input));
+  openModal({
+    title: "Переименовать план",
+    content: form,
+    footer: (() => {
+      const f = document.createElement("div"); f.className = "row"; f.style.justifyContent = "flex-end"; f.style.gap = "8px";
+      f.appendChild(el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"));
+      f.appendChild(submitButton("Сохранить", async () => {
+        const name = input.value.trim();
+        if (!name) { toast("Введите название", "error"); return; }
+        try {
+          const updated = await api.updatePlan(plan.id, { plan_name: name });
+          plan.plan_name = updated.plan_name;
+          toast("Переименовано", "success");
+          closeModal();
+          if (onDone) onDone(updated.plan_name);
+        } catch (e) { toast(e.message, "error"); }
+      }));
+      return f;
+    })(),
+  });
+  setTimeout(() => input.focus(), 50);
+}
 
 export async function renderPlans(host) {
   const isAdmin = auth.isAdmin();
@@ -81,6 +110,7 @@ function planRow(p, reload, isAdmin) {
     el("td", { class: "right actions" },
       menuButton([
         { label: "Открыть", icon: "external", onClick: () => location.hash = `#/plans/${p.id}` },
+        isAdmin && { label: "Переименовать", icon: "pencil", onClick: () => renamePlan(p, reload) },
         { label: "Экспорт CSV", icon: "download", onClick: () => api.exportPlan(p.id) },
         isAdmin && { separator: true },
         isAdmin && {

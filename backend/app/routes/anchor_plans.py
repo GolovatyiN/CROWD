@@ -101,6 +101,25 @@ def get_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(requ
     return _plan_with_stats(db, plan)
 
 
+@router.patch("/{plan_id}", response_model=AnchorPlanOut)
+def update_plan(plan_id: int, payload: dict = Body(...), db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Rename a plan (and optionally change its status). Plans can be many, so
+    a clear, editable name matters."""
+    plan = db.get(AnchorPlan, plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="План не найден")
+    name = payload.get("plan_name")
+    if name is not None:
+        name = str(name).strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        plan.plan_name = name[:255]
+    if payload.get("status"):
+        plan.status = str(payload["status"])[:32]
+    db.commit()
+    return _plan_with_stats(db, plan)
+
+
 @router.delete("/{plan_id}")
 def delete_plan(plan_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     """Delete a plan and its rows fast and safely.
