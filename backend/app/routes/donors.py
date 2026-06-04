@@ -19,6 +19,7 @@ from ..schemas import (
     ImportPreview,
 )
 from ..services import audit
+from ..utils import iso_utc
 from ..services.importer import donors_to_csv, import_donors
 from ..services.matcher import account_usage, extract_domain, invalidate_donor_cache
 from ..services.geo import normalize_country, normalize_language
@@ -276,7 +277,7 @@ def donor_usage(donor_id: int, db: Session = Depends(get_db), _: User = Depends(
                 "target_url": p.target_url,
                 "result_url": p.result_url,
                 "status": p.status,
-                "placed_at": p.placed_at.isoformat() if p.placed_at else None,
+                "placed_at": iso_utc(p.placed_at),
                 "employee_id": p.employee_id,
             }
             for p in placements

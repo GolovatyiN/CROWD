@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from ..auth import require_super_admin
 from ..database import get_db
 from ..models import AuditLog, User
+from ..utils import iso_utc
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
@@ -51,7 +52,7 @@ def list_audit_logs(
             "target_id": r.target_id,
             "target_label": r.target_label,
             "details": _parse_details(r.details),
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "created_at": iso_utc(r.created_at),
         } for r in rows],
     }
 

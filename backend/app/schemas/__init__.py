@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_serializer
+
+from ..utils import iso_utc
 
 # Plain str instead of EmailStr — pydantic's email-validator rejects reserved
 # TLDs like .local / .test which we use for the seeded demo accounts.
@@ -9,6 +11,15 @@ EmailStr = str
 
 class ORMModel(BaseModel):
     model_config = ConfigDict(from_attributes=True)
+
+    @field_serializer("created_at", "updated_at", "placed_at", check_fields=False, when_used="json")
+    def _serialize_utc(self, value: Optional[datetime]):
+        """Timestamps are stored as naive UTC (datetime.utcnow). Emit them with
+        an explicit UTC offset (…+00:00) so clients render local time correctly
+        instead of mistaking a tz-less string for local time. `check_fields`
+        lets this base serializer apply only to subclasses that have the field.
+        """
+        return iso_utc(value)
 
 
 # ---------- Auth / Users ----------

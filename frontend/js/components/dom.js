@@ -64,16 +64,32 @@ export function pill(text, variant = "") {
   return el("span", { class: `pill ${variant}` }, text);
 }
 
+// The backend stores timestamps as naive UTC and serialises them WITHOUT a
+// timezone marker (e.g. "2026-06-03T17:55:00"). A timezone-less datetime string
+// is parsed by JS as *local* time, which made every time render ~UTC (3h behind
+// Moscow). Treat any tz-less string as UTC so the browser converts it to the
+// user's local time correctly. Strings that already carry Z/+hh:mm are kept.
+function parseServerDate(s) {
+  if (s instanceof Date) return s;
+  if (typeof s === "string") {
+    const str = s.trim();
+    const hasTz = /(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(str);
+    const isDateTime = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(str);
+    if (isDateTime && !hasTz) return new Date(str.replace(" ", "T") + "Z");
+  }
+  return new Date(s);
+}
+
 export function fmtDate(s) {
   if (!s) return "—";
-  try { return new Date(s).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
+  try { return parseServerDate(s).toLocaleString("ru-RU", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); }
   catch { return s; }
 }
 
 export function fmtRelative(s) {
   if (!s) return "—";
   const now = new Date();
-  const then = new Date(s);
+  const then = parseServerDate(s);
   const diff = (now - then) / 1000;
   if (diff < 60) return "только что";
   if (diff < 3600) return `${Math.floor(diff / 60)} мин назад`;

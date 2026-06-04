@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
+from ..utils import iso_utc
 from ..models import (
     AnchorPlan,
     AnchorPlanItem,
@@ -120,7 +121,7 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
             "donor_url": p.donor_url,
             "result_url": p.result_url,
             "employee_name": (full_name or email or "—"),
-            "placed_at": p.placed_at.isoformat() if p.placed_at else None,
+            "placed_at": iso_utc(p.placed_at),
         }
         for p, full_name, email in recent_q
     ]
@@ -142,7 +143,7 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
             "target_url": it.target_url,
             "target_domain": it.target_domain,
             "comment": it.comment,
-            "updated_at": it.updated_at.isoformat() if it.updated_at else None,
+            "updated_at": iso_utc(it.updated_at),
         }
         for it, plan_name in problem_q
     ]

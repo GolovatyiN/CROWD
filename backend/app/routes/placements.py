@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
+from ..utils import iso_utc
 from ..models import (
     AnchorPlan,
     AnchorPlanItem,
@@ -150,7 +151,7 @@ def my_tasks(
                 "account_username": placement.account_username,
                 "status": placement.status,
                 "comment": placement.comment,
-                "placed_at": placement.placed_at.isoformat() if placement.placed_at else None,
+                "placed_at": iso_utc(placement.placed_at),
             } if placement else None,
             "suggested_account": suggested,
         })

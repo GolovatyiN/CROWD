@@ -18,6 +18,7 @@ from ..schemas import (
     ImportPreview,
 )
 from ..services import audit
+from ..utils import iso_utc
 from ..services.importer import import_anchor_plan, plan_items_to_csv
 from ..services.matcher import auto_match_plan, find_best_donor, quality_score, _blocked_donor_urls_for_target, _candidates_query, link_type_compatible
 
@@ -243,8 +244,8 @@ def list_items(
             "status": it.status,
             "result_url": it.result_url,
             "comment": it.comment,
-            "created_at": it.created_at.isoformat() if it.created_at else None,
-            "updated_at": it.updated_at.isoformat() if it.updated_at else None,
+            "created_at": iso_utc(it.created_at),
+            "updated_at": iso_utc(it.updated_at),
             "donor": {
                 "id": donor.id,
                 "donor_url": donor.donor_url,
