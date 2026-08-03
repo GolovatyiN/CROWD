@@ -123,6 +123,9 @@ export const api = {
   candidates: (itemId, limit = 30) => request(`/anchor-plans/items/${itemId}/candidates?limit=${limit}`),
   setDonor: (itemId, donor_id) => request(`/anchor-plans/items/${itemId}/set-donor`, { method: "POST", body: { donor_id } }),
   assign: (id, item_ids, assigned_to) => request(`/anchor-plans/${id}/assign`, { method: "POST", body: { item_ids, assigned_to } }),
+  // Aggregate ("Формат 2") buckets: materialise `count` work-units from a bucket.
+  spawnUnits: (itemId, count, do_match = true) => request(`/anchor-plans/items/${itemId}/spawn?count=${count}&do_match=${do_match}`, { method: "POST" }),
+  planItemChildren: (id, parentId, params = {}) => request(`/anchor-plans/${id}/items?${qs({ ...params, parent_id: parentId })}`),
   exportPlan: (id) => downloadFile(`/anchor-plans/${id}/export`, `plan_${id}.csv`),
 
   // placements

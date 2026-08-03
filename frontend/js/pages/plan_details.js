@@ -261,7 +261,7 @@ export async function renderPlanDetails(host, planId) {
         ? el("a", { href: targetHref, target: "_blank", class: "mono", style: { fontSize: "12.5px" } }, targetText)
         : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left" }, paramsBlock(i.geo, i.language, i.required_link_type)),
-      el("td", { class: "left" }, donorBlock(i.donor)),
+      el("td", { class: "left" }, i.is_bucket ? bucketCell(i) : donorBlock(i.donor)),
       el("td", { class: "left" }, assignee
         ? el("span", { style: { fontSize: "13px" } }, assignee.name || assignee.full_name || assignee.email)
         : el("span", { class: "dimmed" }, "—")),
@@ -270,11 +270,12 @@ export async function renderPlanDetails(host, planId) {
         ? el("a", { href: i.result_url, target: "_blank", class: "mono" }, i.result_url)
         : el("span", { class: "dimmed" }, "—")),
       el("td", { class: "right actions" }, menuButton([
-        isAdmin && { label: "Подобрать автоматически", icon: "zap", onClick: async () => {
+        isAdmin && i.is_bucket && { label: "Распределить задания…", icon: "zap", onClick: () => openSpawn(i) },
+        isAdmin && !i.is_bucket && { label: "Подобрать автоматически", icon: "zap", onClick: async () => {
           try { const r = await api.matchOne(i.id); toast(`Подобран донор #${r.donor_id}`, "success"); load(); }
           catch (e) { toast(e.message, "error"); }
         }},
-        isAdmin && { label: "Выбрать вручную…", icon: "target", onClick: () => openDonorPicker(i, (c) => {
+        isAdmin && !i.is_bucket && { label: "Выбрать вручную…", icon: "target", onClick: () => openDonorPicker(i, (c) => {
           // Targeted update: attach the chosen donor to this row, no reload.
           i.selected_donor_id = c.id;
           i.donor = {
@@ -334,10 +335,59 @@ export async function renderPlanDetails(host, planId) {
     });
   }
 
+  function openSpawn(bucket) {
+    const rem = bucket.remaining != null
+      ? bucket.remaining
+      : Math.max(0, (bucket.required_count || 1) - (bucket.reserved_count || 0) - (bucket.used_count || 0));
+    if (rem <= 0) { toast("Остаток исчерпан — распределять нечего", "error"); return; }
+    const input = el("input", { type: "number", min: "1", max: String(rem), value: String(Math.min(rem, 25)), style: { width: "140px" } });
+    const content = el("div", {},
+      el("div", { class: "muted", style: { marginBottom: "10px", fontSize: "13px" } },
+        `Анкор «${bucket.anchor_text || "—"}» → ${bucket.target_url || bucket.target_domain}. Доступный остаток: ${rem}.`),
+      el("div", { class: "field" }, el("label", {}, "Сколько заданий создать"), input),
+      el("div", { class: "muted", style: { marginTop: "6px", fontSize: "12px" } },
+        "Каждое задание получит отдельного донора и пройдёт обычный путь (подбор → назначение → размещение)."),
+    );
+    openModal({
+      title: "Распределить задания из анкор-плана",
+      content,
+      footer: btnRow(
+        el("button", { class: "ghost", onClick: () => closeModal() }, "Отмена"),
+        submitButton("Создать", async () => {
+          const n = parseInt(input.value || "0");
+          if (!n || n < 1) { toast("Укажите количество", "error"); return; }
+          try {
+            const r = await api.spawnUnits(bucket.id, n);
+            toast(`Создано заданий: ${r.spawned}. Осталось: ${r.progress.remaining}`, "success");
+            closeModal();
+            load();
+          } catch (e) { toast(e.message, "error"); }
+        }),
+      ),
+    });
+  }
+
   await load();
 }
 
 // ---- Inline cells ----
+
+// Aggregate bucket ("Формат 2"): show quantity progress instead of a single donor.
+function bucketCell(i) {
+  const req = i.required_count || 1;
+  const used = i.used_count || 0;
+  const res = i.reserved_count || 0;
+  const rem = i.remaining != null ? i.remaining : Math.max(0, req - used - res);
+  const pct = req ? Math.round((used / req) * 100) : 0;
+  return el("div", { style: { fontSize: "12px", lineHeight: "1.5", minWidth: "130px" } },
+    el("div", {}, el("b", {}, `${used}`), ` / ${req} выполнено`),
+    el("div", { class: "row", style: { gap: "6px", alignItems: "center", margin: "3px 0" } },
+      el("div", { class: `progress ${pct >= 100 ? "success" : ""}`, style: { flex: 1 } }, el("div", { class: "bar", style: { width: `${pct}%` } })),
+      el("span", { class: "muted tabular", style: { fontSize: "11px" } }, `${pct}%`),
+    ),
+    el("div", { class: "muted" }, `резерв ${res} · остаток ${rem}`),
+  );
+}
 
 function statusCellWithReason(item) {
   const pill = statusPill(item.status);

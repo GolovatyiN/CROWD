@@ -109,6 +109,17 @@ class AnchorPlanItem(Base):
     status: Mapped[str] = mapped_column(String(32), default="new", index=True)
     kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # inherited from plan
     client_project_id: Mapped[int | None] = mapped_column(ForeignKey("client_projects.id", ondelete="SET NULL"), nullable=True, index=True)  # inherited from plan
+    # Aggregate ("Формат 2": анкор + количество). A bucket item has
+    # required_count > 1 and lazily spawns child unit-items (parent_item_id set)
+    # in batches instead of materialising tens of thousands of identical rows.
+    # Standalone Format-1 items keep required_count=1 and no parent.
+    #   remaining = required_count - reserved_count - used_count
+    required_count: Mapped[int] = mapped_column(Integer, default=1, server_default="1", nullable=False)
+    reserved_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    used_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    parent_item_id: Mapped[int | None] = mapped_column(ForeignKey("anchor_plan_items.id", ondelete="CASCADE"), nullable=True, index=True)
+    anchor_type: Mapped[str] = mapped_column(String(32), default="", server_default="")  # exact|partial|branded|url|unanchored|generic|image|custom|...
+    priority: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False, index=True)
     result_url: Mapped[str] = mapped_column(String(1024), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)

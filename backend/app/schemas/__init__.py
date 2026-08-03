@@ -224,6 +224,13 @@ class AnchorPlanItemOut(ORMModel):
     selected_donor_id: Optional[int]
     status: str
     kind: str = "internal"
+    # Aggregate model ("Формат 2"): buckets carry required/reserved/used counts.
+    required_count: int = 1
+    reserved_count: int = 0
+    used_count: int = 0
+    anchor_type: str = ""
+    priority: int = 0
+    parent_item_id: Optional[int] = None
     result_url: str
     comment: str
     created_at: datetime
@@ -410,6 +417,7 @@ class ImportPreview(BaseModel):
     errors: List[dict] = []
     log_id: Optional[int] = None
     plan_id: Optional[int] = None
+    planned_units: Optional[int] = None  # sum of required_count (Формат 2 buckets expand)
 
 
 # Resolve forward refs

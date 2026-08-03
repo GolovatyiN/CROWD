@@ -6,9 +6,10 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_, update as sa_update
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user, require_admin
+from ..auth import get_current_user, require_admin, require_manager
 from ..database import get_db
 from ..models import AnchorPlan, AnchorPlanItem, ClientProject, Donor, Placement, StopListEntry, User
+from ..services import plan_units
 from ..schemas import (
     AnchorPlanItemOut,
     AnchorPlanItemUpdate,
@@ -193,12 +194,20 @@ def list_items(
     geo: Optional[str] = None,
     language: Optional[str] = None,
     assigned_to: Optional[int] = None,
+    parent_id: Optional[int] = None,
     sort: str = "id",
     order: str = "asc",
     limit: int = 500,
     offset: int = 0,
 ):
     query = db.query(AnchorPlanItem).filter(AnchorPlanItem.anchor_plan_id == plan_id)
+    # By default show only top-level rows (buckets + standalone units). A bucket's
+    # spawned children are fetched explicitly via ?parent_id=<bucket_id>, so
+    # existing plan views aren't cluttered with thousands of unit rows.
+    if parent_id is not None:
+        query = query.filter(AnchorPlanItem.parent_item_id == parent_id)
+    else:
+        query = query.filter(AnchorPlanItem.parent_item_id.is_(None))
     if q:
         like = f"%{q.lower()}%"
         query = query.filter(or_(
@@ -247,6 +256,14 @@ def list_items(
             "assigned_to": it.assigned_to,
             "selected_donor_id": it.selected_donor_id,
             "status": it.status,
+            "anchor_type": it.anchor_type or "",
+            "priority": it.priority or 0,
+            "parent_item_id": it.parent_item_id,
+            "required_count": it.required_count or 1,
+            "reserved_count": it.reserved_count or 0,
+            "used_count": it.used_count or 0,
+            "remaining": max(0, (it.required_count or 1) - (it.reserved_count or 0) - (it.used_count or 0)),
+            "is_bucket": (it.required_count or 1) > 1,
             "result_url": it.result_url,
             "comment": it.comment,
             "created_at": iso_utc(it.created_at),
@@ -494,6 +511,39 @@ def assign_items(
             it.status = "assigned"
     db.commit()
     return {"updated": len(items)}
+
+
+@router.post("/items/{item_id}/spawn")
+def spawn_units_endpoint(
+    item_id: int,
+    count: int = Query(1, ge=1, le=1000),
+    do_match: bool = True,
+    db: Session = Depends(get_db),
+    actor: User = Depends(require_manager),
+):
+    """Materialise up to `count` work-units from an aggregate ("Формат 2") bucket.
+
+    Reserves slots under a row lock and creates child unit-tasks; each is
+    auto-matched to a distinct donor (best-effort), then flows through the
+    normal assign → take → mark-placed pipeline. Never over-spawns beyond the
+    bucket's remaining count.
+    """
+    item = db.get(AnchorPlanItem, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="Позиция не найдена")
+    if (item.required_count or 1) <= 1:
+        raise HTTPException(status_code=400, detail="Это обычная позиция, а не агрегированный анкор с количеством")
+    children = plan_units.spawn_units(db, item, count, do_auto_match=do_match)
+    audit.log(db, actor, "plan.spawn_units", target_id=item.id,
+              target_label=(item.anchor_text or item.target_url or "")[:120],
+              создано=len(children))
+    db.commit()
+    fresh = db.get(AnchorPlanItem, item_id)
+    return {
+        "spawned": len(children),
+        "child_ids": [c.id for c in children],
+        "progress": plan_units.bucket_progress(fresh),
+    }
 
 
 @router.get("/{plan_id}/export")

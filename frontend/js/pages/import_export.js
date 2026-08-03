@@ -26,7 +26,7 @@ export async function renderImportExport(host) {
   sessionStorage.removeItem("import_client_project");
   host.appendChild(section({
     title: "Анкор-план",
-    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, geo, language, required_link_type, requirements. Выберите клиентский проект, чтобы загрузить план как клиентский.",
+    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, anchor_type (тип анкора), geo, language, priority, requirements. Формат 2 — добавьте колонку quantity (количество): такая строка станет агрегированной позицией на N размещений без создания N одинаковых строк; задания создаются кнопкой «Распределить». Выберите клиентский проект, чтобы загрузить план как клиентский.",
     extraFields: [{ name: "plan_name", label: "Название плана", placeholder: "по умолчанию — имя файла" }],
     selectFields: [{
       name: "client_project",

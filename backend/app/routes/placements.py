@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from ..auth import require_admin, require_staff
@@ -25,7 +26,7 @@ from ..schemas import (
     MarkProblemRequest,
     PlacementOut,
 )
-from ..services import link_checker
+from ..services import link_checker, plan_units
 from ..services.matcher import extract_domain, suggest_account
 from ..services.stop_list_service import register_placement
 
@@ -110,6 +111,8 @@ def my_tasks(
 ):
     """Returns items assigned to the current user, joined with donor + existing placement."""
     q = db.query(AnchorPlanItem).filter(AnchorPlanItem.assigned_to == user.id)
+    # Aggregate buckets are never worked directly — only their spawned children.
+    q = q.filter(or_(AnchorPlanItem.required_count.is_(None), AnchorPlanItem.required_count <= 1))
     if status:
         q = q.filter(AnchorPlanItem.status == status)
     if kind in ("internal", "client"):
@@ -254,12 +257,15 @@ def mark_placed(
                 acc.login_password = payload.login_password
         placement.donor_account_id = acc.id
 
-    # Update plan item
+    # Update plan item + aggregate counters (idempotent: only count a unit once).
     if placement.anchor_plan_item_id:
         item = db.get(AnchorPlanItem, placement.anchor_plan_item_id)
         if item:
+            already_placed = item.status == "placed"
             item.status = "placed"
             item.result_url = placement.result_url
+            if not already_placed:
+                plan_units.consume_unit(db, item)
 
     register_placement(db, placement)
     # Queue the just-published ready-link for automatic verification (first check
@@ -286,9 +292,12 @@ def mark_problem(
     placement.comment = payload.comment
     if placement.anchor_plan_item_id:
         item = db.get(AnchorPlanItem, placement.anchor_plan_item_id)
-        if item:
+        if item and item.status != "problem":
+            prev = item.status
             item.status = "problem"
             item.comment = payload.comment
+            # Return the reserved/used slot to the bucket so it can be re-spawned.
+            plan_units.revert_unit(db, item, prev)
     db.commit()
     return {"ok": True}
 

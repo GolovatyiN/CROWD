@@ -304,6 +304,9 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
                 AnchorPlanItem.anchor_plan_id == plan_id,
                 AnchorPlanItem.selected_donor_id.is_(None),
                 ~AnchorPlanItem.status.in_(["placed", "done", "rejected"]),
+                # Skip aggregate buckets (required_count > 1): they spawn child
+                # unit-items which get matched individually, not a single donor.
+                or_(AnchorPlanItem.required_count.is_(None), AnchorPlanItem.required_count <= 1),
             )
         )
     ).scalars().all()

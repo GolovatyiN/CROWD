@@ -286,6 +286,15 @@ PLAN_SYNONYMS = {
     "requirement": "requirements",
     "requirements": "requirements",
     "notes": "requirements",
+    # Формат 2: анкор + количество
+    "quantity": "quantity",
+    "qty": "quantity",
+    "count": "quantity",
+    "amount": "quantity",
+    "volume": "quantity",
+    "anchor_type": "anchor_type",
+    "anchortype": "anchor_type",
+    "priority": "priority",
     # Russian — normalized headers like "Целевая ссылка" -> "целевая_ссылка"
     "целевая_ссылка": "target_url",
     "ссылка": "target_url",
@@ -315,6 +324,26 @@ PLAN_SYNONYMS = {
     "требования": "requirements",
     "комментарий": "requirements",
     "примечание": "requirements",
+    "количество": "quantity",
+    "кол_во": "quantity",
+    "колво": "quantity",
+    "число": "quantity",
+    "объём": "quantity",
+    "объем": "quantity",
+    "тип_анкора": "anchor_type",
+    "вид_анкора": "anchor_type",
+    "приоритет": "priority",
+}
+
+# Known anchor types vs link types. The "Type" column in client anchor plans
+# usually means the ANCHOR type (exact/branded/url/unanchored…), while internal
+# files use it for the LINK type (dofollow/nofollow). We disambiguate by value
+# so both keep working without a separate column.
+_LINK_TYPES = {"dofollow", "nofollow", "mixed", "unknown"}
+_ANCHOR_TYPES = {
+    "exact", "partial", "branded", "brand", "url", "naked", "unanchored",
+    "anchorless", "generic", "image", "custom", "точное", "частичное",
+    "брендовый", "брендовое", "безанкор", "безанкорная", "общий", "изображение",
 }
 
 
@@ -343,6 +372,7 @@ def import_anchor_plan(
 
     errors: list[dict] = []
     inserted = failed = 0
+    planned_units = 0
     for idx, row in df.iterrows():
         target_url = _to_str(row.get("target_url"))
         target_domain = _to_str(row.get("target_domain")) or extract_domain(target_url)
@@ -357,21 +387,41 @@ def import_anchor_plan(
             geo = normalize_country(raw_geo) or raw_geo.upper()[:64] if raw_geo else (country_from_url(target_url) or country_from_url(target_domain) or "")
             raw_lang = _to_str(row.get("language"))
             language = normalize_language(raw_lang) or raw_lang.lower()[:64] if raw_lang else (language_from_url(target_url) or language_from_url(target_domain) or "")
+
+            # Anchor type vs link type: split the "Type" value by what it is.
+            raw_type = (_to_str(row.get("required_link_type")) or "").lower()
+            anchor_type = (_to_str(row.get("anchor_type")) or "").lower()
+            if raw_type in _LINK_TYPES:
+                link_type = raw_type
+            elif raw_type in _ANCHOR_TYPES:
+                anchor_type = anchor_type or raw_type
+                link_type = ""
+            else:
+                link_type = raw_type  # unknown token: preserve legacy behaviour
+
+            # Формат 2: одна строка с количеством -> bucket (required_count=N),
+            # который лениво порождает единицы, вместо N одинаковых строк.
+            qty = _to_int(row.get("quantity"))
+            required_count = qty if qty and qty > 1 else 1
             item = AnchorPlanItem(
                 anchor_plan_id=plan.id,
                 target_url=target_url,
                 target_domain=target_domain,
                 anchor_text=_to_str(row.get("anchor_text")),
+                anchor_type=anchor_type[:32],
                 geo=geo,
                 language=language,
-                required_link_type=(_to_str(row.get("required_link_type")) or "").lower(),
+                required_link_type=link_type,
                 requirements=_to_str(row.get("requirements")),
-                status="new",
+                required_count=required_count,
+                priority=_to_int(row.get("priority")),
+                status="available" if required_count > 1 else "new",
                 kind=kind or "internal",
                 client_project_id=client_project_id,
             )
             db.add(item)
             inserted += 1
+            planned_units += required_count
         except Exception as e:
             failed += 1
             errors.append({"row": int(idx) + 2, "error": str(e)[:200]})
@@ -398,6 +448,7 @@ def import_anchor_plan(
         "errors": errors[:50],
         "log_id": log.id,
         "plan_id": plan.id,
+        "planned_units": planned_units,
     }
 
 
