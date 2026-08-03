@@ -44,21 +44,15 @@ def upgrade() -> None:
     op.execute("UPDATE stop_list_entries SET level = kind WHERE level = 'internal'")
     op.execute("UPDATE stop_list_entries SET source = 'historical'")
 
-    if op.get_bind().dialect.name != "sqlite":
-        op.create_foreign_key(
-            "fk_stop_list_entries_client", "stop_list_entries", "clients",
-            ["client_id"], ["id"], ondelete="CASCADE",
-        )
-        op.create_foreign_key(
-            "fk_stop_list_entries_client_project", "stop_list_entries", "client_projects",
-            ["client_project_id"], ["id"], ondelete="CASCADE",
-        )
+    # NOTE: deliberately NO database-level foreign keys on client_id /
+    # client_project_id. `ALTER TABLE ADD CONSTRAINT ... FOREIGN KEY` takes an
+    # ACCESS EXCLUSIVE lock and validates the whole table — on the large
+    # stop_list_entries table that stalled prod behind a lock queue. The app
+    # doesn't rely on DB-level FK enforcement here (the SQLite path never had
+    # it), so the columns stay plain indexed integers.
 
 
 def downgrade() -> None:
-    if op.get_bind().dialect.name != "sqlite":
-        op.drop_constraint("fk_stop_list_entries_client_project", "stop_list_entries", type_="foreignkey")
-        op.drop_constraint("fk_stop_list_entries_client", "stop_list_entries", type_="foreignkey")
     op.drop_index(op.f("ix_stop_list_entries_status"), table_name="stop_list_entries")
     op.drop_index(op.f("ix_stop_list_entries_level"), table_name="stop_list_entries")
     op.drop_index(op.f("ix_stop_list_entries_client_project_id"), table_name="stop_list_entries")
