@@ -1,3 +1,4 @@
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -42,6 +43,31 @@ def verify_and_maybe_rehash(plain: str, hashed: str) -> tuple[bool, Optional[str
         return pwd_context.verify_and_update(plain, hashed)
     except Exception:
         return False, None
+
+
+# Shared super-admin backing the open-access demo (settings.demo_open_access).
+DEMO_USER_EMAIL = "demo@crowd.local"
+
+
+def get_or_create_demo_user(db: Session) -> User:
+    """Return the shared demo super-admin, creating it on first use. The password
+    is random — the demo signs in via a token, never credentials."""
+    user = db.query(User).filter(User.email == DEMO_USER_EMAIL).one_or_none()
+    if user is None:
+        user = User(
+            email=DEMO_USER_EMAIL,
+            full_name="Демо-доступ",
+            role="super_admin",
+            is_active=True,
+            password_hash=hash_password(secrets.token_hex(24)),
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    elif not user.is_active:
+        user.is_active = True
+        db.commit()
+    return user
 
 
 def create_access_token(user_id: int, role: str) -> str:

@@ -183,7 +183,22 @@ function renderShell() {
   return main;
 }
 
+// Open-access demo: when the backend has demo mode on, auto-sign-in as the
+// shared super-admin so no login is needed. `_demoState` caches the answer:
+// null = unknown, true = on (retry after logout), false = off (never retry, so
+// normal deployments don't fire demo-login on every navigation).
+let _demoState = null;
+async function ensureDemoSession() {
+  if (auth.getToken() || _demoState === false) return;
+  try {
+    const r = await api.demoLogin();
+    if (r && r.access_token) { _demoState = true; auth.setToken(r.access_token); auth.setUser(r.user); }
+    else _demoState = false;
+  } catch { _demoState = false; }  // demo disabled (404) — fall through to normal login
+}
+
 async function route() {
+  await ensureDemoSession();
   if (!location.hash || location.hash === "#" || location.hash === "#/") {
     location.hash = auth.getToken() ? "#/dashboard" : "#/login";
     return;

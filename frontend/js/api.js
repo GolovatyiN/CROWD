@@ -69,6 +69,7 @@ async function cachedRequest(path, ttlMs) {
 export const api = {
   // auth
   login: (email, password) => request("/auth/login", { method: "POST", body: { email, password } }),
+  demoLogin: () => request("/auth/demo-login", { method: "POST" }),
   me: () => request("/auth/me"),
 
   // users — cached 30s (employee roster changes rarely; reused as a lookup

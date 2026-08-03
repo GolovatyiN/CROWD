@@ -13,6 +13,12 @@ class Settings(BaseSettings):
     admin_password: str = "admin123"
     admin_name: str = "Admin"
 
+    # Open-access demo: when true, the app needs no login — every visitor is
+    # auto-signed-in as a shared super-admin (for sharing a public preview link).
+    # OFF by default; flip via the DEMO_OPEN_ACCESS env var. WARNING: this exposes
+    # everything the super-admin sees, including stored account passwords.
+    demo_open_access: bool = False
+
     score_tr_weight: float = 40
     score_traffic_weight: float = 20
     score_refdomains_weight: float = 20
