@@ -289,5 +289,10 @@ def check_placement(db: Session, placement: Placement, *, level: int = 1,
     lc.locked_at = None
     lc.next_check_at = utcnow() + timedelta(hours=recheck_hours)
     db.flush()
+    try:  # notifications are best-effort — never let them break a check
+        from . import notifications
+        notifications.maybe_alert(db, placement, status)
+    except Exception:  # noqa: BLE001
+        pass
     return {"status": status, "duration_ms": duration, "http_status": http_status,
             "final_url": lc.final_url, "found_anchor": lc.found_anchor, "is_dofollow": lc.is_dofollow}

@@ -331,6 +331,27 @@ class LinkCheckResult(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class Notification(Base):
+    """In-app notification for a manager / teamlead (link problems, etc.)."""
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    type: Mapped[str] = mapped_column(String(48))
+    severity: Mapped[str] = mapped_column(String(16), default="info")  # info|warning|error
+    entity_type: Mapped[str] = mapped_column(String(32), default="")
+    entity_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    title: Mapped[str] = mapped_column(String(255), default="")
+    body: Mapped[str] = mapped_column(Text, default="")
+    dedup_key: Mapped[str] = mapped_column(String(255), default="", index=True)
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+
+    __table_args__ = (
+        Index("ix_notifications_user_read", "user_id", "is_read"),
+    )
+
+
 class AuditLog(Base):
     """Append-only journal of sensitive admin actions.
 

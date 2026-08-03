@@ -164,6 +164,11 @@ export const api = {
   linkCheckStatus: () => request("/admin/link-check/status"),
   linkCheckRun: (limit = 50) => request(`/admin/link-check/run?limit=${limit}`, { method: "POST" }),
 
+  // notifications
+  notificationsList: (params = {}) => request(`/notifications?${qs(params)}`),
+  markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "POST" }),
+  markAllNotificationsRead: () => request("/notifications/read-all", { method: "POST" }),
+
   // dashboard
   stats: () => request("/dashboard/stats"),
 
