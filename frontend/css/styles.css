@@ -397,14 +397,23 @@ input[type="file"] {
   flex: 1;
   overflow-y: auto;
 }
+.nav-group { display: flex; flex-direction: column; }
+.nav-group-items { display: flex; flex-direction: column; gap: 1px; }
+.nav-group.collapsed .nav-group-items { display: none; }
 .nav-section {
+  display: flex; align-items: center; justify-content: space-between;
   font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--sb-text-3);
   padding: 14px 10px 6px;
   font-weight: 600;
+  cursor: pointer;
+  user-select: none;
 }
+.nav-section:hover { color: var(--sb-text-2); }
+.nav-chevron { color: var(--sb-text-3); opacity: 0.65; transition: transform .2s ease; }
+.nav-group.collapsed .nav-chevron { transform: rotate(-90deg); }
 .nav a {
   display: flex; align-items: center; gap: 10px;
   padding: 7px 10px;
@@ -503,6 +512,8 @@ input[type="file"] {
 .layout.collapsed .user-block .logout-btn { display: none; }
 .layout.collapsed .nav a { justify-content: center; padding: 8px; }
 .layout.collapsed .nav a.active::before { display: none; }
+/* Icon-only sidebar: ignore group-collapse so every item still shows as an icon. */
+.layout.collapsed .nav-group.collapsed .nav-group-items { display: flex; }
 .layout.collapsed .sidebar-header { padding: 4px 0 12px; justify-content: center; }
 .layout.collapsed .user-block { justify-content: center; }
 

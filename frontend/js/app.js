@@ -23,24 +23,28 @@ import { renderAllocation } from "./pages/allocation.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
-  { hash: "#/dashboard", title: "Сводка", icon: "dashboard", roles: ["admin", "super_admin"], group: "main" },
-  { hash: "#/my-tasks", title: "Мои задачи", icon: "tasks", roles: ["user", "admin", "super_admin"], group: "main" },
-  { hash: "#/notifications", title: "Уведомления", icon: "alert", roles: ["teamlead", "manager", "admin", "super_admin"], group: "main" },
-  { hash: "#/plans", title: "Анкор-планы", icon: "plans", roles: ["admin", "super_admin"], group: "data" },
-  { hash: "#/donors", title: "Доноры", icon: "donors", roles: ["admin", "super_admin"], group: "data" },
-  { hash: "#/clients", title: "Клиенты", icon: "users", roles: ["admin", "super_admin"], group: "data" },
-  { hash: "#/stop-list", title: "Стоп-лист", icon: "stop", roles: ["user", "admin", "super_admin"], group: "data" },
-  { hash: "#/link-monitor", title: "Контроль ссылок", icon: "refresh", roles: ["teamlead", "manager", "admin", "super_admin"], group: "data" },
-  { hash: "#/email-accounts", title: "Аккаунты", icon: "user", roles: ["user", "admin", "super_admin"], group: "data" },
-  { hash: "#/allocation", title: "Распределение", icon: "tasks", roles: ["manager", "admin", "super_admin"], group: "admin" },
-  { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "admin" },
+  // Обзор
+  { hash: "#/dashboard", title: "Сводка", icon: "dashboard", roles: ["admin", "super_admin"], group: "overview" },
+  { hash: "#/my-tasks", title: "Мои задачи", icon: "tasks", roles: ["user", "admin", "super_admin"], group: "overview" },
+  { hash: "#/notifications", title: "Уведомления", icon: "alert", roles: ["teamlead", "manager", "admin", "super_admin"], group: "overview" },
+  { hash: "#/link-monitor", title: "Контроль ссылок", icon: "refresh", roles: ["teamlead", "manager", "admin", "super_admin"], group: "overview" },
+  // Клиенты и планы
+  { hash: "#/clients", title: "Клиенты", icon: "users", roles: ["admin", "super_admin"], group: "campaigns" },
+  { hash: "#/plans", title: "Анкор-планы", icon: "plans", roles: ["admin", "super_admin"], group: "campaigns" },
+  { hash: "#/allocation", title: "Распределение", icon: "tasks", roles: ["manager", "admin", "super_admin"], group: "campaigns" },
+  { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "campaigns" },
+  // Ресурсы
+  { hash: "#/donors", title: "Доноры", icon: "donors", roles: ["admin", "super_admin"], group: "resources" },
+  { hash: "#/stop-list", title: "Стоп-лист", icon: "stop", roles: ["user", "admin", "super_admin"], group: "resources" },
+  { hash: "#/email-accounts", title: "Почтовые аккаунты", icon: "user", roles: ["user", "admin", "super_admin"], group: "resources" },
+  // Админ
   { hash: "#/users", title: "Сотрудники", icon: "users", roles: ["super_admin"], group: "admin" },
   { hash: "#/audit", title: "Журнал действий", icon: "file", roles: ["super_admin"], group: "admin" },
   // Client cabinet — only role 'client' sees this (and nothing else).
   { hash: "#/client/projects", title: "Мои проекты", icon: "plans", roles: ["client"], group: "client" },
 ];
 
-const GROUP_LABELS = { main: "Работа", data: "Данные", admin: "Администрирование", client: "Кабинет" };
+const GROUP_LABELS = { overview: "Обзор", campaigns: "Клиенты и планы", resources: "Ресурсы", admin: "Админ", client: "Кабинет" };
 
 function canSee(item, user) {
   return item.roles.includes(user.role);
@@ -93,15 +97,30 @@ function buildSidebar(user) {
     (groups[n.group] = groups[n.group] || []).push(n);
   });
   Object.entries(groups).forEach(([groupKey, items]) => {
-    navEl.appendChild(el("div", { class: "nav-section" }, GROUP_LABELS[groupKey] || ""));
+    const storeKey = "crowd_navgroup_" + groupKey;
+    const isCollapsed = localStorage.getItem(storeKey) === "1";
+    const groupEl = el("div", { class: `nav-group${isCollapsed ? " collapsed" : ""}` });
+    const itemsEl = el("div", { class: "nav-group-items" });
+    // Collapsible group header (accordion). Client cabinet has a single item —
+    // no header, no collapsing.
+    if (groupKey !== "client") {
+      groupEl.appendChild(el("div", {
+        class: "nav-section",
+        onClick: () => {
+          const nowCollapsed = groupEl.classList.toggle("collapsed");
+          localStorage.setItem(storeKey, nowCollapsed ? "1" : "0");
+        },
+      }, el("span", {}, GROUP_LABELS[groupKey] || ""), icon("chevronDown", { size: 13, className: "nav-chevron" })));
+    }
     items.forEach(n => {
-      const a = el("a", {
+      itemsEl.appendChild(el("a", {
         href: n.hash,
         class: location.hash === n.hash || location.hash.startsWith(n.hash + "/") ? "active" : "",
         title: n.title,
-      }, icon(n.icon, { size: 17 }), el("span", {}, n.title));
-      navEl.appendChild(a);
+      }, icon(n.icon, { size: 17 }), el("span", {}, n.title)));
     });
+    groupEl.appendChild(itemsEl);
+    navEl.appendChild(groupEl);
   });
 
   const userBlock = el("div", { class: "user-block", title: user.email },
