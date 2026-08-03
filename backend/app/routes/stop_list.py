@@ -7,7 +7,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user, require_admin
+from ..auth import require_admin, require_staff
 from ..database import get_db
 from ..models import StopListEntry, User
 from ..schemas import ImportPreview, StopListOut
@@ -32,7 +32,7 @@ SL_SORT_FIELDS = {
 @router.get("", response_model=list[StopListOut])
 def list_stop_list(
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_staff),
     q: Optional[str] = None,
     target_domain: Optional[str] = None,
     donor_url: Optional[str] = None,

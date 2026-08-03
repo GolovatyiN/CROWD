@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import ADMIN_ROLES, ALL_ROLES, get_current_user, hash_password, require_admin, require_super_admin
 from ..database import get_db
-from ..models import AuditLog, User
+from ..models import AuditLog, Client, User
 from ..schemas import UserCreate, UserOut, UserUpdate
 from ..services import audit
 
@@ -69,12 +69,19 @@ def create_user(
         raise HTTPException(status_code=400, detail=f"Неизвестная роль: {payload.role}")
     if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=400, detail="Сотрудник с таким email уже существует")
+    # A 'client' user must be tied to an existing Client; internal users never are.
+    client_id = None
+    if payload.role == "client":
+        if not payload.client_id or not db.get(Client, payload.client_id):
+            raise HTTPException(status_code=400, detail="Для роли «Клиент» укажите существующего клиента")
+        client_id = payload.client_id
     user = User(
         email=payload.email,
         full_name=payload.full_name,
         role=payload.role or "user",
         password_hash=hash_password(payload.password),
         is_active=True,
+        client_id=client_id,
     )
     db.add(user)
     db.flush()
@@ -122,6 +129,16 @@ def update_user(
     if payload.password:
         user.password_hash = hash_password(payload.password)
         changes["password"] = "changed"
+
+    if payload.client_id is not None and payload.client_id != user.client_id:
+        changes["client_id"] = {"from": user.client_id, "to": payload.client_id}
+        user.client_id = payload.client_id
+    # Keep role/client_id consistent: clients need a client, internal users don't.
+    if user.role == "client" and not user.client_id:
+        raise HTTPException(status_code=400, detail="Для роли «Клиент» укажите клиента (client_id)")
+    if user.role != "client" and user.client_id:
+        user.client_id = None
+        changes["client_id"] = {"to": None}
 
     if changes:
         action = "user.role_change" if "role" in changes else (

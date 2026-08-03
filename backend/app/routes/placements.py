@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user, require_admin
+from ..auth import require_admin, require_staff
 from ..database import get_db
 from ..utils import iso_utc
 from ..models import (
@@ -99,7 +99,7 @@ MY_TASKS_SORT_FIELDS = {
 @router.get("/my-tasks")
 def my_tasks(
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
     status: Optional[str] = None,
     kind: Optional[str] = None,
     sort: str = "updated_at",
@@ -171,7 +171,7 @@ def my_tasks(
 
 
 @router.post("/my-tasks/{item_id}/take")
-def take_task(item_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def take_task(item_id: int, db: Session = Depends(get_db), user: User = Depends(require_staff)):
     item = db.get(AnchorPlanItem, item_id)
     if not item or item.assigned_to != user.id:
         raise HTTPException(status_code=404, detail="Не найдено")
@@ -188,7 +188,7 @@ def mark_placed(
     placement_id: int,
     payload: MarkPlacedRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     placement = db.get(Placement, placement_id)
     if not placement:
@@ -269,7 +269,7 @@ def mark_problem(
     placement_id: int,
     payload: MarkProblemRequest,
     db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_staff),
 ):
     placement = db.get(Placement, placement_id)
     if not placement:

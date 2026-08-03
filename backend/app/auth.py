@@ -74,7 +74,11 @@ def get_current_user(
 
 
 ADMIN_ROLES = ("admin", "super_admin")
-ALL_ROLES = ("user", "admin", "super_admin")
+MANAGER_ROLES = ("manager", "admin", "super_admin")
+# Every internal role — explicitly EXCLUDES the external 'client'. Anything an
+# employee/teamlead/manager/admin may touch uses this; clients can never pass it.
+INTERNAL_ROLES = ("user", "teamlead", "manager", "admin", "super_admin")
+ALL_ROLES = INTERNAL_ROLES + ("client",)
 
 
 def require_admin(user: User = Depends(get_current_user)) -> User:
@@ -88,4 +92,27 @@ def require_super_admin(user: User = Depends(get_current_user)) -> User:
     """Super-Admin only — user management, role changes, audit log."""
     if user.role != "super_admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступно только Super Admin")
+    return user
+
+
+def require_manager(user: User = Depends(get_current_user)) -> User:
+    """Manager / Admin / Super-Admin — clients, projects, work distribution."""
+    if user.role not in MANAGER_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Доступно менеджеру и выше")
+    return user
+
+
+def require_staff(user: User = Depends(get_current_user)) -> User:
+    """Any INTERNAL role — hard gate that rejects external clients. Use on every
+    endpoint that exposes internal data (donors, stop-list, tasks, …)."""
+    if user.role not in INTERNAL_ROLES:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Раздел недоступен")
+    return user
+
+
+def require_client(user: User = Depends(get_current_user)) -> User:
+    """External client only. Must be tied to a Client (client_id). Every /client/*
+    endpoint additionally filters queries by this user's client_id."""
+    if user.role != "client" or not user.client_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Только для клиентского кабинета")
     return user

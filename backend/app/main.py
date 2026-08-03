@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.gzip import GZipMiddleware
 
 from .database import SessionLocal, engine, get_db
-from .routes import admin, anchor_plans, audit, auth, clients, dashboard, donors, email_accounts, placements, stop_list, users
+from .routes import admin, anchor_plans, audit, auth, client_portal, clients, dashboard, donors, email_accounts, placements, stop_list, users
 
 # Identifies this exact process instance so we can cache-bust the entrypoint
 # bundle. Changes on every deploy / restart.
@@ -94,6 +94,7 @@ app.include_router(audit.router)
 app.include_router(email_accounts.router)
 app.include_router(admin.router)
 app.include_router(clients.router)
+app.include_router(client_portal.router)
 
 
 @app.get("/api/health")
@@ -130,6 +131,22 @@ def health_db(db: Session = Depends(get_db)):
         }
     except Exception as e:  # noqa: BLE001
         return JSONResponse({"ok": False, "db": "down", "error": str(e)[:200]}, status_code=503)
+
+
+@app.get("/api/health/schema")
+def health_schema(db: Session = Depends(get_db)):
+    """Non-secret schema snapshot: current alembic revision + table names. Lets us
+    confirm migrations landed on prod without logging in. Exposes no data."""
+    from sqlalchemy import inspect as sa_inspect
+    try:
+        version = None
+        try:
+            version = db.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "alembic": version, "tables": sorted(sa_inspect(engine).get_table_names())}
+    except Exception as e:  # noqa: BLE001
+        return JSONResponse({"ok": False, "error": str(e)[:200]}, status_code=503)
 
 
 # --- Static frontend ---

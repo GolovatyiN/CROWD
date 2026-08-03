@@ -38,7 +38,8 @@ class TokenResponse(BaseModel):
 class UserBase(BaseModel):
     email: EmailStr
     full_name: str = ""
-    role: str = "employee"
+    role: str = "user"
+    client_id: Optional[int] = None  # required when role='client'
 
 
 class UserCreate(UserBase):
@@ -50,6 +51,7 @@ class UserUpdate(BaseModel):
     role: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+    client_id: Optional[int] = None
 
 
 class UserOut(ORMModel):
@@ -58,6 +60,7 @@ class UserOut(ORMModel):
     full_name: str
     role: str
     is_active: bool
+    client_id: Optional[int] = None
     created_at: datetime
 
 

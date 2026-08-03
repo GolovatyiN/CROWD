@@ -18,8 +18,10 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), default="")
-    role: Mapped[str] = mapped_column(String(32), default="employee")  # admin | employee
+    role: Mapped[str] = mapped_column(String(32), default="user")  # super_admin|admin|manager|teamlead|user|client
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Set only for role='client' — that user sees only this client's data.
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
 

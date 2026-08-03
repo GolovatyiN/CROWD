@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from ..auth import require_admin
+from ..auth import require_manager
 from ..database import get_db
 from ..models import (
     AnchorPlanItem,
@@ -103,7 +103,7 @@ def _project_member_ids(db: Session, project_id: int) -> list[int]:
 @router.get("/clients", response_model=list[ClientOut])
 def list_clients(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_manager),
     q: Optional[str] = None,
     status: Optional[str] = None,
 ):
@@ -120,7 +120,7 @@ def list_clients(
 
 
 @router.post("/clients", response_model=ClientOut)
-def create_client(payload: ClientCreate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def create_client(payload: ClientCreate, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     if not payload.name.strip():
         raise HTTPException(status_code=400, detail="Укажите название клиента")
     c = Client(
@@ -135,7 +135,7 @@ def create_client(payload: ClientCreate, db: Session = Depends(get_db), actor: U
 
 
 @router.get("/clients/{client_id}", response_model=ClientOut)
-def get_client(client_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def get_client(client_id: int, db: Session = Depends(get_db), _: User = Depends(require_manager)):
     c = db.get(Client, client_id)
     if not c:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -144,7 +144,7 @@ def get_client(client_id: int, db: Session = Depends(get_db), _: User = Depends(
 
 
 @router.patch("/clients/{client_id}", response_model=ClientOut)
-def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     c = db.get(Client, client_id)
     if not c:
         raise HTTPException(status_code=404, detail="Клиент не найден")
@@ -157,7 +157,7 @@ def update_client(client_id: int, payload: ClientUpdate, db: Session = Depends(g
 
 
 @router.delete("/clients/{client_id}")
-def archive_client(client_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def archive_client(client_id: int, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     """Soft-archive (status='archived') — preserves linked plans/placements."""
     c = db.get(Client, client_id)
     if not c:
@@ -173,7 +173,7 @@ def archive_client(client_id: int, db: Session = Depends(get_db), actor: User = 
 @router.get("/client-projects", response_model=list[ClientProjectOut])
 def list_client_projects(
     db: Session = Depends(get_db),
-    _: User = Depends(require_admin),
+    _: User = Depends(require_manager),
     client_id: Optional[int] = None,
     status: Optional[str] = None,
 ):
@@ -187,7 +187,7 @@ def list_client_projects(
 
 
 @router.post("/client-projects", response_model=ClientProjectOut)
-def create_client_project(payload: ClientProjectCreate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def create_client_project(payload: ClientProjectCreate, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     client = db.get(Client, payload.client_id)
     if not client:
         raise HTTPException(status_code=400, detail="Клиент не найден")
@@ -203,7 +203,7 @@ def create_client_project(payload: ClientProjectCreate, db: Session = Depends(ge
 
 
 @router.get("/client-projects/{project_id}", response_model=ClientProjectOut)
-def get_client_project(project_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def get_client_project(project_id: int, db: Session = Depends(get_db), _: User = Depends(require_manager)):
     p = db.get(ClientProject, project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Проект не найден")
@@ -211,7 +211,7 @@ def get_client_project(project_id: int, db: Session = Depends(get_db), _: User =
 
 
 @router.patch("/client-projects/{project_id}", response_model=ClientProjectOut)
-def update_client_project(project_id: int, payload: ClientProjectUpdate, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def update_client_project(project_id: int, payload: ClientProjectUpdate, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     p = db.get(ClientProject, project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Проект не найден")
@@ -230,7 +230,7 @@ def update_client_project(project_id: int, payload: ClientProjectUpdate, db: Ses
 
 
 @router.delete("/client-projects/{project_id}")
-def archive_client_project(project_id: int, db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+def archive_client_project(project_id: int, db: Session = Depends(get_db), actor: User = Depends(require_manager)):
     p = db.get(ClientProject, project_id)
     if not p:
         raise HTTPException(status_code=404, detail="Проект не найден")

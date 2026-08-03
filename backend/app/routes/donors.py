@@ -342,7 +342,7 @@ def update_account(
     account_id: int,
     payload: DonorAccountUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    _: User = Depends(require_admin),
 ):
     account = db.get(DonorAccount, account_id)
     if not account or account.donor_id != donor_id:
