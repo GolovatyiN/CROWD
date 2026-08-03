@@ -146,6 +146,7 @@ class DonorAccountUpdate(BaseModel):
 class DonorAccountOut(ORMModel):
     id: int
     donor_id: int
+    email_account_id: Optional[int] = None   # linked mailbox from the pool
     login_email: str
     login_password: str
     account_username: str

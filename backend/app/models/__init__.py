@@ -56,6 +56,10 @@ class DonorAccount(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     donor_id: Mapped[int] = mapped_column(ForeignKey("donors.id", ondelete="CASCADE"), nullable=False, index=True)
+    # Which mailbox from the shared pool (EmailAccount) this donor-account uses.
+    # Links the pool ↔ donor usage so we can see which mailbox served which donor
+    # and reuse it on repeat placements. NULL = mailbox not (yet) in the pool.
+    email_account_id: Mapped[int | None] = mapped_column(ForeignKey("email_accounts.id", ondelete="SET NULL"), nullable=True, index=True)
     login_email: Mapped[str] = mapped_column(String(255), default="")
     login_password: Mapped[str] = mapped_column(String(255), default="")
     account_username: Mapped[str] = mapped_column(String(255), default="")

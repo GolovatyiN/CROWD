@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth import require_admin, require_staff
@@ -14,6 +14,7 @@ from ..models import (
     ClientProject,
     Donor,
     DonorAccount,
+    EmailAccount,
     LinkCheck,
     LinkCheckResult,
     Placement,
@@ -256,6 +257,13 @@ def mark_placed(
             if payload.login_password:
                 acc.login_password = payload.login_password
         placement.donor_account_id = acc.id
+        # Link this donor-account to the shared pool mailbox with a matching email,
+        # so the pool ↔ donor usage is tracked (and reused on repeat placements).
+        email = (acc.login_email or "").strip().lower()
+        if email and not acc.email_account_id:
+            mailbox = db.query(EmailAccount).filter(func.lower(EmailAccount.email) == email).first()
+            if mailbox:
+                acc.email_account_id = mailbox.id
 
     # Update plan item + aggregate counters (idempotent: only count a unit once).
     if placement.anchor_plan_item_id:

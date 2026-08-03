@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..models import EmailAccount, Placement, User
+from ..models import DonorAccount, EmailAccount, Placement, User
 from ..schemas import EmailAccountCreate, EmailAccountOut, EmailAccountUpdate
 
 router = APIRouter(prefix="/email-accounts", tags=["email_accounts"])
@@ -22,9 +22,11 @@ SORT_FIELDS = {
 }
 
 
-def _to_out(acc: EmailAccount, usage_map: dict[str, int], names: dict[int, str]) -> dict:
+def _to_out(acc: EmailAccount, usage_map: dict[str, int], names: dict[int, str],
+            donors_map: dict[int, int] | None = None) -> dict:
     data = EmailAccountOut.model_validate(acc).model_dump(mode="json")
     data["usage_count"] = usage_map.get(acc.email, 0)
+    data["donors_used"] = (donors_map or {}).get(acc.id, 0)   # distinct donors this mailbox served
     data["assignee_name"] = names.get(acc.assigned_to) if acc.assigned_to else None
     return data
 
@@ -74,6 +76,14 @@ def list_accounts(
     ).all()
     usage_map = {email: cnt for email, cnt in usage_rows}
 
+    # Distinct donors each mailbox has served (via the pool ↔ donor link).
+    donor_rows = db.execute(
+        select(DonorAccount.email_account_id, func.count(func.distinct(DonorAccount.donor_id)))
+        .where(DonorAccount.email_account_id.isnot(None))
+        .group_by(DonorAccount.email_account_id)
+    ).all()
+    donors_map = {eaid: cnt for eaid, cnt in donor_rows}
+
     # Resolve assignee names in one query.
     assignee_ids = {a.assigned_to for a in accounts if a.assigned_to}
     names: dict[int, str] = {}
@@ -81,7 +91,7 @@ def list_accounts(
         for u in db.query(User).filter(User.id.in_(assignee_ids)).all():
             names[u.id] = u.full_name or u.email
 
-    return [_to_out(a, usage_map, names) for a in accounts]
+    return [_to_out(a, usage_map, names, donors_map) for a in accounts]
 
 
 def _name_for(db: Session, user_id: Optional[int]) -> dict[int, str]:
