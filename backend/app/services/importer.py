@@ -324,6 +324,7 @@ def import_anchor_plan(
     filename: str,
     plan_name: str,
     user_id: Optional[int],
+    kind: str = "internal",
 ) -> dict:
     df = _apply_synonyms(_read_table(file_bytes, filename), PLAN_SYNONYMS)
     if "target_url" not in df.columns and "target_domain" not in df.columns:
@@ -333,6 +334,7 @@ def import_anchor_plan(
         plan_name=plan_name or filename or "Анкор-план",
         uploaded_file_name=filename,
         created_by=user_id,
+        kind=kind or "internal",
     )
     db.add(plan)
     db.flush()
@@ -363,6 +365,7 @@ def import_anchor_plan(
                 required_link_type=(_to_str(row.get("required_link_type")) or "").lower(),
                 requirements=_to_str(row.get("requirements")),
                 status="new",
+                kind=kind or "internal",
             )
             db.add(item)
             inserted += 1

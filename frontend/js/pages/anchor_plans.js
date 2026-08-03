@@ -1,5 +1,5 @@
 import { api, auth } from "../api.js";
-import { el, fmtDate, emptyState, tableSkeleton, menuButton, sortHeader, submitButton } from "../components/dom.js";
+import { el, fmtDate, emptyState, tableSkeleton, menuButton, sortHeader, submitButton, kindBadge } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -92,7 +92,10 @@ function planRow(p, reload, isAdmin) {
   const pct = p.total_rows ? Math.round((p.completed_rows / p.total_rows) * 100) : 0;
   return el("tr", {},
     el("td", { class: "left" },
-      el("a", { href: `#/plans/${p.id}`, style: { fontWeight: 500 } }, p.plan_name),
+      el("div", { class: "row", style: { gap: "8px", alignItems: "center" } },
+        el("a", { href: `#/plans/${p.id}`, style: { fontWeight: 500 } }, p.plan_name),
+        kindBadge(p.kind),
+      ),
       p.uploaded_file_name && el("div", { class: "mono", style: { fontSize: "11.5px", color: "var(--text-3)", marginTop: "2px" } }, p.uploaded_file_name),
     ),
     el("td", { class: "right tabular mono" }, String(p.total_rows)),

@@ -1,5 +1,5 @@
 import { api, auth } from "../api.js";
-import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, searchInput, fmtRelative, sortHeader, submitButton } from "../components/dom.js";
+import { el, statusPill, STATUS_LABELS, emptyState, tableSkeleton, menuButton, searchInput, fmtRelative, sortHeader, submitButton, kindBadge } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -105,6 +105,7 @@ export async function renderPlanDetails(host, planId) {
         isAdmin && el("button", { class: "subtle icon small", title: "Переименовать",
           onClick: () => renamePlan(plan, (newName) => { titleEl.textContent = newName; }),
         }, icon("pencil", { size: 14 })),
+        kindBadge(plan.kind),
       ),
       el("div", { class: "page-subtitle" }, `${plan.total_rows} строк · готово ${plan.completed_rows} · в работе ${plan.pending_rows} · проблем ${plan.problem_rows}`),
     ),

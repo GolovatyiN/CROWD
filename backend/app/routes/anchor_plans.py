@@ -40,6 +40,7 @@ def _plan_payload(plan: AnchorPlan, stats: dict[str, int]) -> dict:
         "plan_name": plan.plan_name,
         "uploaded_file_name": plan.uploaded_file_name,
         "status": plan.status,
+        "kind": getattr(plan, "kind", "internal") or "internal",
         "created_by": plan.created_by,
         "created_at": plan.created_at,
         **stats,
@@ -70,10 +71,14 @@ def list_plans(
     _: User = Depends(require_admin),
     sort: str = "created_at",
     order: str = "desc",
+    kind: Optional[str] = None,
 ):
     sort_col = PLAN_SORT_FIELDS.get(sort.lower(), AnchorPlan.created_at)
     direction = sort_col.desc() if order.lower() == "desc" else sort_col.asc()
-    plans = db.query(AnchorPlan).order_by(direction).all()
+    q = db.query(AnchorPlan)
+    if kind in ("internal", "client"):
+        q = q.filter(AnchorPlan.kind == kind)
+    plans = q.order_by(direction).all()
 
     # Stats for ALL plans in one grouped query instead of one query per plan
     # (was N+1). Build {plan_id: {status: count}} then derive the rollups.

@@ -64,6 +64,16 @@ export function pill(text, variant = "") {
   return el("span", { class: `pill ${variant}` }, text);
 }
 
+// Тип размещения: «Наши» (internal) / «Клиентские» (client). Единый бейдж —
+// используется в списках планов, задачах, размещениях и т.д.
+export function kindBadge(kind) {
+  const isClient = kind === "client";
+  return el("span", {
+    class: `pill ${isClient ? "violet" : "muted"}`,
+    title: isClient ? "Клиентское размещение" : "Внутреннее (наше) размещение",
+  }, isClient ? "Клиентские" : "Наши");
+}
+
 // The backend stores timestamps as naive UTC and serialises them WITHOUT a
 // timezone marker (e.g. "2026-06-03T17:55:00"). A timezone-less datetime string
 // is parsed by JS as *local* time, which made every time render ~UTC (3h behind

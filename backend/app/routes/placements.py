@@ -50,6 +50,7 @@ def _ensure_placement_for_item(db: Session, item: AnchorPlanItem, user: User) ->
         donor_url=donor.donor_url if donor else "",
         anchor_text=item.anchor_text,
         employee_id=item.assigned_to or user.id,
+        kind=getattr(item, "kind", "internal") or "internal",
         status="in_progress",
     )
     db.add(placement)
@@ -63,6 +64,7 @@ def list_placements(
     _: User = Depends(require_admin),
     status: Optional[str] = None,
     employee_id: Optional[int] = None,
+    kind: Optional[str] = None,
     limit: int = 500,
     offset: int = 0,
 ):
@@ -71,6 +73,8 @@ def list_placements(
         q = q.filter(Placement.status == status)
     if employee_id is not None:
         q = q.filter(Placement.employee_id == employee_id)
+    if kind in ("internal", "client"):
+        q = q.filter(Placement.kind == kind)
     return q.order_by(Placement.created_at.desc()).offset(offset).limit(limit).all()
 
 
@@ -93,6 +97,7 @@ def my_tasks(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     status: Optional[str] = None,
+    kind: Optional[str] = None,
     sort: str = "updated_at",
     order: str = "desc",
 ):
@@ -100,6 +105,8 @@ def my_tasks(
     q = db.query(AnchorPlanItem).filter(AnchorPlanItem.assigned_to == user.id)
     if status:
         q = q.filter(AnchorPlanItem.status == status)
+    if kind in ("internal", "client"):
+        q = q.filter(AnchorPlanItem.kind == kind)
     sort_col = MY_TASKS_SORT_FIELDS.get(sort.lower(), AnchorPlanItem.updated_at)
     direction = sort_col.desc() if order.lower() == "desc" else sort_col.asc()
     items = q.order_by(direction, AnchorPlanItem.id.desc()).all()
@@ -133,6 +140,7 @@ def my_tasks(
             "required_link_type": it.required_link_type,
             "requirements": it.requirements,
             "status": it.status,
+            "kind": getattr(it, "kind", "internal") or "internal",
             "donor": {
                 "id": donor.id,
                 "donor_url": donor.donor_url,

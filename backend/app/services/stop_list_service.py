@@ -58,6 +58,7 @@ def register_placement(
         login_email=placement.login_email,
         source_anchor_plan=plan_name,
         comment=placement.comment,
+        kind=getattr(placement, "kind", "internal") or "internal",
     )
     db.add(entry)
     db.flush()

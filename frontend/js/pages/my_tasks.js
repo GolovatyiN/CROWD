@@ -1,5 +1,5 @@
 import { api } from "../api.js";
-import { el, clear, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader, submitButton, busyClick } from "../components/dom.js";
+import { el, clear, statusPill, STATUS_LABELS, emptyState, tableSkeleton, copy, sortHeader, submitButton, busyClick, kindBadge } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
@@ -211,7 +211,7 @@ function taskRow(t, num, reload, accounts) {
     tr.appendChild(el("td", { class: "muted", style: { fontSize: "12px" } }, t.language || el("span", { class: "dimmed" }, "—")));
     tr.appendChild(el("td", { class: "left" }, donorCell));
     tr.appendChild(el("td", { class: "left" }, accountCell));
-    tr.appendChild(el("td", {}, statusPill(t.status)));
+    tr.appendChild(el("td", {}, el("div", { class: "row", style: { gap: "6px", alignItems: "center", flexWrap: "wrap" } }, statusPill(t.status), kindBadge(t.kind))));
     tr.appendChild(el("td", { class: "left" }, resultInput));
     tr.appendChild(el("td", { class: "right actions" }, actions));
   }

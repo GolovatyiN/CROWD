@@ -79,6 +79,9 @@ class AnchorPlan(Base):
     plan_name: Mapped[str] = mapped_column(String(255), nullable=False)
     uploaded_file_name: Mapped[str] = mapped_column(String(512), default="")
     status: Mapped[str] = mapped_column(String(32), default="active")
+    # internal | client — 'internal' = наши проекты, 'client' = для внешних клиентов.
+    # Denormalised onto items/placements/stop-list (inherited from the plan).
+    kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -100,6 +103,7 @@ class AnchorPlanItem(Base):
     assigned_to: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     selected_donor_id: Mapped[int | None] = mapped_column(ForeignKey("donors.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="new", index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # inherited from plan
     result_url: Mapped[str] = mapped_column(String(1024), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -129,6 +133,7 @@ class Placement(Base):
     donor_account_id: Mapped[int | None] = mapped_column(ForeignKey("donor_accounts.id"), nullable=True)
     result_url: Mapped[str] = mapped_column(String(1024), default="")
     status: Mapped[str] = mapped_column(String(32), default="in_progress", index=True)
+    kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # inherited from item/plan
     login_email: Mapped[str] = mapped_column(String(255), default="")
     login_password: Mapped[str] = mapped_column(String(255), default="")
     account_username: Mapped[str] = mapped_column(String(255), default="")
@@ -155,6 +160,7 @@ class StopListEntry(Base):
     login_email: Mapped[str] = mapped_column(String(255), default="")
     source_anchor_plan: Mapped[str] = mapped_column(String(255), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
+    kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # tag only; dedup stays global
 
     # Uniqueness is per ANCHOR, not per target_url. The same donor must not
     # repeat within one anchor (target_url + anchor_text), but the same donor

@@ -198,6 +198,7 @@ class AnchorPlanOut(ORMModel):
     plan_name: str
     uploaded_file_name: str
     status: str
+    kind: str = "internal"
     created_by: Optional[int]
     created_at: datetime
     total_rows: int = 0
@@ -219,6 +220,7 @@ class AnchorPlanItemOut(ORMModel):
     assigned_to: Optional[int]
     selected_donor_id: Optional[int]
     status: str
+    kind: str = "internal"
     result_url: str
     comment: str
     created_at: datetime
@@ -268,6 +270,7 @@ class PlacementOut(ORMModel):
     login_password: str
     account_username: str
     comment: str
+    kind: str = "internal"
     created_at: datetime
     placed_at: Optional[datetime]
 
@@ -301,6 +304,7 @@ class StopListOut(ORMModel):
     login_email: str
     source_anchor_plan: str
     comment: str
+    kind: str = "internal"
 
 
 # ---------- Import ----------
