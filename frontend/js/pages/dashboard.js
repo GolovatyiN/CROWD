@@ -6,7 +6,7 @@ const CONTOURS = [["", "Все"], ["internal", "Наши"], ["client", "Клие
 
 export async function renderDashboard(host) {
   const user = auth.getUser();
-  const state = { kind: "" };  // "" = все, internal = наши, client = клиентские
+  const state = { kind: "", client_id: "" };  // kind: "" все / internal наши / client клиентские
 
   host.appendChild(el("div", { class: "page-header" },
     el("div", {},
@@ -15,24 +15,63 @@ export async function renderDashboard(host) {
     ),
   ));
 
-  // Contour toggle — read the whole board as «Все / Наши / Клиентские».
-  const seg = el("div", { class: "segmented", style: { marginBottom: "6px" } });
+  // Contour toggle + (in the client contour) a specific-client picker, so
+  // several clients can be read one at a time instead of lumped together.
+  const seg = el("div", { class: "segmented" });
+  const clientSel = document.createElement("select");
+  clientSel.style.cssText = "width:auto;min-width:190px;";
+  clientSel.addEventListener("change", () => { state.client_id = clientSel.value; paint(); });
+  const clientWrap = el("div", { style: { display: "none" } }, clientSel);
+  const controls = el("div", { class: "row", style: { gap: "10px", alignItems: "center", flexWrap: "wrap", marginBottom: "6px" } }, seg, clientWrap);
   const splitHint = el("div", { class: "muted", style: { fontSize: "11.5px", marginBottom: "16px" } });
+  host.appendChild(controls);
+  host.appendChild(splitHint);
+
+  const board = el("div", {});
+  host.appendChild(board);
+
+  // Client list for the picker (few rows, loaded once).
+  let clients = [];
+  try { clients = await api.clients(); } catch { /* ignore */ }
+  clients.sort((a, b) => (a.name || "").localeCompare(b.name || "", "ru"));
+
+  function rebuildClientSel() {
+    clientWrap.style.display = state.kind === "client" ? "" : "none";
+    clientSel.innerHTML = "";
+    const all = document.createElement("option");
+    all.value = ""; all.textContent = "Все клиенты";
+    clientSel.appendChild(all);
+    clients.forEach(c => {
+      const o = document.createElement("option");
+      o.value = String(c.id); o.textContent = c.name || `Клиент #${c.id}`;
+      if (String(state.client_id) === String(c.id)) o.selected = true;
+      clientSel.appendChild(o);
+    });
+  }
+
   function rebuildSeg() {
     seg.innerHTML = "";
     CONTOURS.forEach(([val, label]) => {
       seg.appendChild(el("button", {
         class: `seg ${state.kind === val ? "active" : ""}`,
-        onClick: () => { if (state.kind !== val) { state.kind = val; rebuildSeg(); paint(); } },
+        onClick: () => {
+          if (state.kind === val) return;
+          state.kind = val;
+          if (val !== "client") state.client_id = "";  // client filter only lives in the client contour
+          rebuildSeg(); rebuildClientSel(); paint();
+        },
       }, label));
     });
   }
-  rebuildSeg();
-  host.appendChild(seg);
-  host.appendChild(splitHint);
 
-  const board = el("div", {});
-  host.appendChild(board);
+  // Jump straight to one client from the «По клиентам» panel.
+  function pickClient(id) {
+    state.kind = "client"; state.client_id = String(id);
+    rebuildSeg(); rebuildClientSel(); paint();
+  }
+
+  rebuildSeg();
+  rebuildClientSel();
 
   async function paint() {
     board.innerHTML = "";
@@ -50,17 +89,22 @@ export async function renderDashboard(host) {
     colsHost.appendChild(rightLoad.wrap);
 
     let s;
-    try { s = await api.stats(state.kind); }
+    try { s = await api.stats(state.kind, state.client_id); }
     catch (e) {
       board.innerHTML = "";
       board.appendChild(emptyState({ iconName: "alert", title: "Не удалось загрузить данные", desc: e.message }));
       return;
     }
 
-    // Contour caption: show the наши/клиентские split + remind that the donor
-    // base and stop-list are a shared resource (not divided by contour).
-    splitHint.textContent = `Размещений всего: наши ${s.placements_internal} · клиентские ${s.placements_client}`
-      + (state.kind ? " · доноры и стоп-лист — общий ресурс" : "");
+    // Caption: scoped to a single client, or the наши/клиентские split. Either
+    // way the donor base and stop-list stay a shared resource (not per-contour).
+    const selName = state.client_id
+      ? (clients.find(c => String(c.id) === String(state.client_id))?.name || `Клиент #${state.client_id}`)
+      : "";
+    splitHint.textContent = selName
+      ? `Клиент: ${selName} · размещений ${s.placements_total} · доноры и стоп-лист — общий ресурс`
+      : `Размещений всего: наши ${s.placements_internal} · клиентские ${s.placements_client}`
+        + (state.kind ? " · доноры и стоп-лист — общий ресурс" : "");
 
     cardsHost.innerHTML = "";
     colsHost.innerHTML = "";
@@ -123,7 +167,7 @@ export async function renderDashboard(host) {
     if (state.kind !== "internal" && (s.by_client || []).length) {
       const clientPanel = panel("По клиентам", `${s.by_client.length}`);
       const maxC = Math.max(1, ...s.by_client.map(c => c.count));
-      s.by_client.forEach(c => clientPanel.body.appendChild(clientRow(c, maxC)));
+      s.by_client.forEach(c => clientPanel.body.appendChild(clientRow(c, maxC, pickClient, state.client_id)));
       rightCol.appendChild(clientPanel.wrap);
     }
 
@@ -152,12 +196,24 @@ export async function renderDashboard(host) {
   await paint();
 }
 
-function clientRow(c, max) {
+function clientRow(c, max, onPick, selectedId) {
   const pct = Math.round((c.count / max) * 100);
+  const active = String(selectedId) === String(c.client_id);
+  const name = el("button", {
+    title: "Показать сводку по этому клиенту",
+    onClick: onPick ? () => onPick(c.client_id) : undefined,
+    style: {
+      flex: 1, minWidth: 0, textAlign: "left", background: "none", border: "none", padding: 0,
+      cursor: onPick ? "pointer" : "default", fontSize: "13.5px", fontWeight: active ? 700 : 500,
+      color: active ? "var(--accent)" : "var(--text-1)",
+      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+    },
+  }, c.name);
   return el("div", { style: { padding: "9px 0", borderBottom: "1px solid var(--border)" } },
     el("div", { class: "row", style: { gap: "10px", marginBottom: "6px", alignItems: "center" } },
-      el("div", { style: { flex: 1, minWidth: 0, fontSize: "13.5px", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } }, c.name),
-      el("a", { href: `#/clients/${c.client_id}`, class: "mono tabular", style: { fontSize: "13px", color: "var(--text-2)" } }, String(c.count)),
+      name,
+      el("a", { href: `#/clients/${c.client_id}`, class: "mono tabular", title: "Открыть карточку клиента",
+        style: { fontSize: "13px", color: "var(--text-2)" } }, String(c.count)),
     ),
     el("div", { class: "progress" }, el("div", { class: "bar", style: { width: `${pct}%` } })),
   );

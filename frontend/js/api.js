@@ -177,7 +177,13 @@ export const api = {
   markAllNotificationsRead: () => request("/notifications/read-all", { method: "POST" }),
 
   // dashboard
-  stats: (kind) => request(`/dashboard/stats${kind ? `?kind=${kind}` : ""}`),
+  stats: (kind, clientId) => {
+    const p = {};
+    if (kind) p.kind = kind;
+    if (clientId) p.client_id = clientId;
+    const q = qs(p);
+    return request(`/dashboard/stats${q ? `?${q}` : ""}`);
+  },
 
   // admin maintenance
   resetAllData: () => request("/admin/reset-data", { method: "POST" }).then(r => {

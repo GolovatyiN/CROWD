@@ -12,6 +12,7 @@ from ..models import (
     AnchorPlan,
     AnchorPlanItem,
     Client,
+    ClientProject,
     Donor,
     Placement,
     StopListEntry,
@@ -26,6 +27,7 @@ def stats(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
     kind: Optional[str] = None,
+    client_id: Optional[int] = None,
 ):
     """Heavy endpoint — consolidate into a small number of aggregated queries.
 
@@ -40,6 +42,12 @@ def stats(
     can be read at a glance.
     """
     kind_f = kind if kind in ("internal", "client") else None
+    # A specific client narrows the board to that one client (implies the
+    # client contour). Placements carry client_id directly; plan items reach
+    # the client through their client_project_id → ClientProject.client_id.
+    client_f = client_id if client_id else None
+    if client_f:
+        kind_f = "client"
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day)
     yesterday_start = today_start - timedelta(days=1)
@@ -60,6 +68,8 @@ def stats(
     item_q = db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
     if kind_f:
         item_q = item_q.filter(AnchorPlanItem.kind == kind_f)
+    if client_f:
+        item_q = item_q.join(ClientProject, AnchorPlanItem.client_project_id == ClientProject.id).filter(ClientProject.client_id == client_f)
     item_rows = item_q.group_by(AnchorPlanItem.status).all()
     by_status = {s: c for s, c in item_rows}
     items_total = sum(by_status.values())
@@ -83,6 +93,8 @@ def stats(
     )
     if kind_f:
         placement_base = placement_base.filter(Placement.kind == kind_f)
+    if client_f:
+        placement_base = placement_base.filter(Placement.client_id == client_f)
     placement_row = placement_base.one()
     placements_total = placement_row.total or 0
     placements_today = placement_row.today or 0
@@ -99,6 +111,8 @@ def stats(
     )
     if kind_f:
         series_q = series_q.filter(Placement.kind == kind_f)
+    if client_f:
+        series_q = series_q.filter(Placement.client_id == client_f)
     series_rows = series_q.group_by(day_col).all()
     series_counts = {str(r[0]): r[1] for r in series_rows}
     series = []
@@ -115,6 +129,8 @@ def stats(
     )
     if kind_f:
         top_q = top_q.filter(Placement.kind == kind_f)
+    if client_f:
+        top_q = top_q.filter(Placement.client_id == client_f)
     top_rows = (
         top_q.group_by(User.id, User.email, User.full_name)
         .order_by(func.count(Placement.id).desc())
@@ -134,6 +150,8 @@ def stats(
     )
     if kind_f:
         recent_base = recent_base.filter(Placement.kind == kind_f)
+    if client_f:
+        recent_base = recent_base.filter(Placement.client_id == client_f)
     recent_q = recent_base.order_by(Placement.placed_at.desc()).limit(8).all()
     recent_activity = [
         {
@@ -155,6 +173,8 @@ def stats(
     )
     if kind_f:
         problem_base = problem_base.filter(AnchorPlanItem.kind == kind_f)
+    if client_f:
+        problem_base = problem_base.join(ClientProject, AnchorPlanItem.client_project_id == ClientProject.id).filter(ClientProject.client_id == client_f)
     problem_q = problem_base.order_by(AnchorPlanItem.updated_at.desc()).limit(8).all()
     problems = [
         {
@@ -190,6 +210,8 @@ def stats(
     )
     if kind_f:
         emp_q = emp_q.filter(AnchorPlanItem.kind == kind_f)
+    if client_f:
+        emp_q = emp_q.join(ClientProject, AnchorPlanItem.client_project_id == ClientProject.id).filter(ClientProject.client_id == client_f)
     emp_rows = (
         emp_q.group_by(User.id, User.full_name, User.email)
         .order_by(func.count(AnchorPlanItem.id).desc())
@@ -237,6 +259,7 @@ def stats(
 
     return {
         "kind": kind_f or "all",
+        "client_id": client_f,
         "placements_internal": placements_internal,
         "placements_client": placements_client,
         "by_client": by_client,
