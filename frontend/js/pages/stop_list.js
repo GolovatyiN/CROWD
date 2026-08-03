@@ -3,8 +3,8 @@ import { el, fmtDate, fmtRelative, emptyState, tableSkeleton, menuButton, search
 import { icon } from "../components/icons.js";
 import { toast } from "../components/toast.js";
 
-const LEVEL_LABELS = { internal: "Наши", client: "Клиент", project: "Проект", campaign: "Кампания", global: "Глобальный" };
-const LEVEL_VARIANT = { internal: "muted", client: "info", project: "info", campaign: "info", global: "warning" };
+const KIND_LABELS = { internal: "Наш", client: "Клиентский" };
+const KIND_VARIANT = { internal: "muted", client: "info" };
 const SOURCE_LABELS = { auto: "Авто", import: "Импорт", manual: "Ручное", historical: "История", client_forbidden: "Запрет клиента" };
 
 export async function renderStopList(host) {
@@ -22,14 +22,14 @@ export async function renderStopList(host) {
   ));
 
   const state = {
-    q: "", client_project_id: "", level: "", source: "",
+    q: "", kind: "", client_id: "", source: "",
     date_from: "", date_to: "", sort: "placed_at", order: "desc",
     offset: 0, limit: 50,
   };
 
-  // Project list for the filter — managers/admins only; ignore if forbidden.
-  let projects = [];
-  try { projects = await api.clientProjects(); } catch { projects = []; }
+  // Client list for the filter — managers/admins only; ignore if forbidden.
+  let clients = [];
+  try { clients = await api.clients(); } catch { clients = []; }
 
   // ---- search + filter toggle ----
   const sb = el("div", { class: "search-bar" });
@@ -44,17 +44,15 @@ export async function renderStopList(host) {
 
   const applyFilter = () => { state.offset = 0; load(); };
   filters.append(
-    selectField("Проект", state.client_project_id, [
-      { value: "", label: "Все проекты" },
-      ...projects.map(p => ({ value: String(p.id), label: p.name })),
-    ], v => { state.client_project_id = v; }),
-    selectField("Уровень", state.level, [
-      { value: "", label: "Любой" },
-      { value: "internal", label: "Наши" },
-      { value: "client", label: "Клиентские" },
-      { value: "project", label: "Проектные" },
-      { value: "global", label: "Глобальные" },
-    ], v => { state.level = v; }),
+    selectField("Стоп-лист", state.kind, [
+      { value: "", label: "Все" },
+      { value: "internal", label: "Наш (внутренний)" },
+      { value: "client", label: "Клиентский" },
+    ], v => { state.kind = v; }),
+    selectField("Клиент", state.client_id, [
+      { value: "", label: "Все клиенты" },
+      ...clients.map(c => ({ value: String(c.id), label: c.name })),
+    ], v => { state.client_id = v; }),
     selectField("Источник", state.source, [
       { value: "", label: "Любой" },
       { value: "auto", label: "Авто (после размещения)" },
@@ -67,7 +65,7 @@ export async function renderStopList(host) {
     field("По", el("input", { type: "date", onInput: (e) => state.date_to = e.target.value })),
     el("button", { onClick: applyFilter }, "Применить"),
     el("button", { class: "ghost", onClick: () => {
-      Object.assign(state, { client_project_id: "", level: "", source: "", date_from: "", date_to: "", offset: 0 });
+      Object.assign(state, { kind: "", client_id: "", source: "", date_from: "", date_to: "", offset: 0 });
       filters.querySelectorAll("input").forEach(i => i.value = "");
       filters.querySelectorAll("select").forEach(s => s.value = "");
       load();
@@ -87,7 +85,7 @@ export async function renderStopList(host) {
     wrap.appendChild(tableSkeleton(7, 7));
     pager.innerHTML = "";
     const params = { sort: state.sort, order: state.order, limit: state.limit, offset: state.offset };
-    ["q", "client_project_id", "level", "source", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
+    ["q", "kind", "client_id", "source", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
       const data = await api.stopList(params);
       if (my !== loadSeq) return;
@@ -132,7 +130,7 @@ export async function renderStopList(host) {
       sortHeader("Целевой домен", "target_domain", state, load, "left"),
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
       sortHeader("Донор", "donor_url", state, load, "left"),
-      el("th", {}, "Уровень"),
+      el("th", {}, "Стоп-лист"),
       el("th", {}, "Источник"),
       sortHeader("Дата", "placed_at", state, load),
       el("th", { class: "right" }, ""),
@@ -142,7 +140,7 @@ export async function renderStopList(host) {
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_domain }, r.target_domain || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_url }, r.target_url || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate", title: r.donor_url }, el("a", { href: ensureUrl(r.donor_url), target: "_blank", rel: "noopener", class: "mono", style: { fontSize: "12px" } }, r.donor_url)),
-      el("td", {}, pill(LEVEL_LABELS[r.level] || r.level || "—", LEVEL_VARIANT[r.level] || "muted")),
+      el("td", {}, pill(KIND_LABELS[r.kind] || "—", KIND_VARIANT[r.kind] || "muted")),
       el("td", { class: "muted", style: { fontSize: "12px" } }, SOURCE_LABELS[r.source] || r.source || "—"),
       el("td", { class: "muted", title: fmtDate(r.placed_at) }, fmtRelative(r.placed_at)),
       el("td", { class: "right actions" }, menuButton([
@@ -161,7 +159,7 @@ export async function renderStopList(host) {
   }
 
   function hasFilters() {
-    return state.client_project_id || state.level || state.source || state.date_from || state.date_to;
+    return state.kind || state.client_id || state.source || state.date_from || state.date_to;
   }
 
   await load();

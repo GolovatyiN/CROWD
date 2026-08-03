@@ -37,6 +37,7 @@ def list_stop_list(
     target_domain: Optional[str] = None,
     donor_url: Optional[str] = None,
     placed_by: Optional[int] = None,
+    kind: Optional[str] = None,
     client_id: Optional[int] = None,
     client_project_id: Optional[int] = None,
     level: Optional[str] = None,
@@ -53,6 +54,8 @@ def list_stop_list(
     The table can hold hundreds of thousands of rows, so a page + a total count
     is served rather than the whole list."""
     query = db.query(StopListEntry)
+    if kind in ("internal", "client"):
+        query = query.filter(StopListEntry.kind == kind)
     if client_id is not None:
         query = query.filter(StopListEntry.client_id == client_id)
     if client_project_id is not None:
