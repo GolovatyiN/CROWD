@@ -58,14 +58,17 @@ export async function renderPlanDetails(host, planId) {
       "Подбираем…",
       async () => {
         const r = await api.autoMatch(planId);
+        const info = r.contour === "client"
+          ? ` Клиентский план: доноры из общей базы (${r.donor_pool}), исключено ${r.stoplist_blocked} по стоп-листу клиента.`
+          : ` Наш план: исключено ${r.stoplist_blocked} по нашему стоп-листу (база ${r.donor_pool}).`;
         if (!r.considered) {
           toast("Нет строк, требующих подбора — у всех уже есть донор", "warning");
         } else if (!r.matched) {
-          toast(`Рассмотрено ${r.considered}, подходящих доноров не нашлось`, "error");
+          toast(`Рассмотрено ${r.considered}, подходящих доноров не нашлось.${info}`, "error");
         } else if (r.not_matched) {
-          toast(`Подобрано: ${r.matched} из ${r.considered}, проблем: ${r.not_matched} — нажмите статус "Проблема" чтобы узнать причину`, "success");
+          toast(`Подобрано: ${r.matched} из ${r.considered}, проблем: ${r.not_matched}.${info}`, "success");
         } else {
-          toast(`Подобрано: ${r.matched} из ${r.considered}`, "success");
+          toast(`Подобрано: ${r.matched} из ${r.considered}.${info}`, "success");
         }
         load();
       }));

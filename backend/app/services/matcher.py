@@ -389,6 +389,12 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
     }
     domain_blocks_by_tdom = _domain_level_blocks(db, target_domains, contour)
 
+    # Distinct donors excluded by THIS contour's stop-list (shown in the UI so
+    # the user can see the client's stop-list was actually applied).
+    _blocked_urls = set().union(*blocked_by_anchor.values()) if blocked_by_anchor else set()
+    _blocked_domains = set().union(*domain_blocks_by_tdom.values()) if domain_blocks_by_tdom else set()
+    stoplist_blocked = len(_blocked_urls | _blocked_domains)
+
     # ---- per-item pick ----
     matched = 0
     problem_items: list[int] = []
@@ -459,6 +465,9 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         "not_matched": len(problem_items),
         "items_problem": problem_items,
         "considered": len(items),
+        "contour": contour[0],                 # internal | client
+        "stoplist_blocked": stoplist_blocked,  # distinct donors excluded by this contour's stop-list
+        "donor_pool": len(donor_records),      # size of the shared donor base
     }
 
 

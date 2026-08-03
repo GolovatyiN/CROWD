@@ -260,6 +260,9 @@ class AutoMatchResult(BaseModel):
     not_matched: int
     items_problem: List[int] = []
     considered: int = 0
+    contour: str = "internal"          # internal | client
+    stoplist_blocked: int = 0          # distinct donors excluded by this contour's stop-list
+    donor_pool: int = 0                # size of the shared donor base
 
 
 # ---------- Placements ----------
