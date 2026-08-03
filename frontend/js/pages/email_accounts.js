@@ -1,12 +1,12 @@
 import { api, auth } from "../api.js";
-import { el, fmtRelative, fmtDate, emptyState, tableSkeleton, menuButton, searchInput, sortHeader, copy } from "../components/dom.js";
+import { el, fmtRelative, fmtDate, emptyState, tableSkeleton, menuButton, searchInput, sortHeader, copy, avatar } from "../components/dom.js";
 import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
 
 export async function renderEmailAccounts(host) {
   const isAdmin = auth.isAdmin();
-  const state = { q: "", is_active: "", assigned_to: "", sort: "id", order: "asc" };
+  const view = { mode: "pool" };  // pool | employees (employees is admin-only)
 
   // Admins need the employee list for the "issue to" dropdown + filter.
   let employees = [];
@@ -14,7 +14,7 @@ export async function renderEmailAccounts(host) {
     try { employees = await api.users({ sort: "full_name", order: "asc" }); } catch { /* ignore */ }
   }
 
-  host.appendChild(el("div", { class: "page-header" },
+  const header = el("div", { class: "page-header" },
     el("div", {},
       el("div", { class: "page-title" }, "Аккаунты"),
       el("div", { class: "page-subtitle" }, isAdmin
@@ -22,18 +22,50 @@ export async function renderEmailAccounts(host) {
         : "Аккаунты, выданные вам для размещений"),
     ),
     el("div", { class: "page-actions" },
-      isAdmin && el("button", { onClick: () => openForm(null, load, employees) }, icon("plus", { size: 14 }), el("span", {}, "Новый аккаунт")),
+      isAdmin && el("button", { onClick: () => openForm(null, () => mount(), employees) }, icon("plus", { size: 14 }), el("span", {}, "Новый аккаунт")),
     ),
-  ));
+  );
+  host.appendChild(header);
+
+  // Segmented switch between the pool table and the per-employee breakdown.
+  if (isAdmin) {
+    const seg = el("div", { class: "segmented", style: { marginBottom: "14px" } });
+    const SEGS = [["pool", "Пул аккаунтов"], ["employees", "По сотрудникам"]];
+    const rebuild = () => {
+      seg.innerHTML = "";
+      SEGS.forEach(([m, label]) => seg.appendChild(el("button", {
+        class: `seg ${view.mode === m ? "active" : ""}`,
+        onClick: () => { if (view.mode !== m) { view.mode = m; rebuild(); mount(); } },
+      }, label)));
+    };
+    rebuild();
+    host.appendChild(seg);
+  }
+
+  const container = el("div", {});
+  host.appendChild(container);
+
+  function mount() {
+    container.innerHTML = "";
+    if (view.mode === "employees" && isAdmin) mountEmployees(container);
+    else mountPool(container, isAdmin, employees);
+  }
+  mount();
+}
+
+// ---------------- Pool view (the shared mailbox table) ----------------
+
+function mountPool(root, isAdmin, employees) {
+  const state = { q: "", is_active: "", assigned_to: "", sort: "id", order: "asc" };
 
   const sb = el("div", { class: "search-bar" });
   sb.appendChild(searchInput({
     placeholder: "Поиск по email или метке…",
     onInput: (v) => { state.q = v; debounce(load)(); },
   }));
-  sb.appendChild(el("button", { class: "ghost", onClick: () => { filters.style.display = filters.style.display === "none" ? "" : "none"; }},
+  sb.appendChild(el("button", { class: "ghost", onClick: () => { filters.style.display = filters.style.display === "none" ? "" : "none"; } },
     icon("filter", { size: 14 }), el("span", {}, "Фильтры")));
-  host.appendChild(sb);
+  root.appendChild(sb);
 
   const filters = el("div", { class: "filters", style: { display: "none", marginBottom: "12px" } });
   filters.appendChild(field("Статус", selectInput(state.is_active, ["", "true", "false"], v => state.is_active = v, "(все)", { true: "активные", false: "неактивные" })));
@@ -43,21 +75,21 @@ export async function renderEmailAccounts(host) {
     employees.forEach(u => labels[String(u.id)] = u.full_name || u.email);
     filters.appendChild(field("Сотрудник", selectInput(state.assigned_to, opts, v => state.assigned_to = v, "(все)", labels)));
   }
-  filters.appendChild(el("button", { onClick: load }, "Применить"));
+  filters.appendChild(el("button", { onClick: () => load() }, "Применить"));
   filters.appendChild(el("button", { class: "ghost", onClick: () => {
     state.q = ""; state.is_active = ""; state.assigned_to = "";
     sb.querySelector("input").value = "";
     filters.querySelectorAll("select").forEach(s => s.value = "");
     load();
-  }}, "Сбросить"));
-  host.appendChild(filters);
+  } }, "Сбросить"));
+  root.appendChild(filters);
 
   const wrap = el("div", { class: "table-wrap" });
-  host.appendChild(wrap);
+  root.appendChild(wrap);
 
   async function load() {
     wrap.innerHTML = "";
-    wrap.appendChild(tableSkeleton(5, 6));
+    wrap.appendChild(tableSkeleton(5, 7));
     const params = { sort: state.sort, order: state.order };
     if (state.q) params.q = state.q;
     if (state.is_active === "true") params.is_active = true;
@@ -95,7 +127,8 @@ export async function renderEmailAccounts(host) {
       sortHeader("Метка", "label", state, load, "left"),
     ];
     if (isAdmin) headCells.push(sortHeader("Сотрудник", "assigned_to", state, load, "left"));
-    headCells.push(el("th", { class: "right" }, "Использован"));
+    headCells.push(el("th", { class: "right" }, "Доноры"));
+    headCells.push(el("th", { class: "right" }, "Размещений"));
     headCells.push(sortHeader("Статус", "is_active", state, load));
     headCells.push(el("th", { class: "right" }, ""));
     table.appendChild(el("thead", {}, el("tr", {}, ...headCells)));
@@ -106,7 +139,7 @@ export async function renderEmailAccounts(host) {
     wrap.appendChild(table);
   }
 
-  await load();
+  load();
 }
 
 function accountRow(a, reload, isAdmin, employees) {
@@ -126,12 +159,19 @@ function accountRow(a, reload, isAdmin, employees) {
       ? el("span", { class: "pill info" }, a.assignee_name || `#${a.assigned_to}`)
       : el("span", { class: "pill muted" }, "Общий")));
   }
+  // Доноры — how many distinct donors this mailbox has served; click to see them.
+  const donorsUsed = a.donors_used || 0;
+  cells.push(el("td", { class: "right" }, donorsUsed
+    ? el("button", { class: "subtle small", style: { fontFamily: "var(--mono)", fontSize: "12px" }, title: "На каких донорах использован",
+        onClick: () => openDonorsModal(a.id, a.email) }, String(donorsUsed))
+    : el("span", { class: "dimmed" }, "0")));
   cells.push(el("td", { class: "right tabular mono", style: { fontSize: "12px" } }, a.usage_count ? String(a.usage_count) : el("span", { class: "dimmed" }, "0")));
   cells.push(el("td", {}, a.is_active ? el("span", { class: "pill success" }, "активен") : el("span", { class: "pill error" }, "неактивен")));
 
   const menuItems = [
-    { label: "Скопировать email", icon: "copy", onClick: async () => { (await copy(a.email)) && toast("Email скопирован", "success"); }},
-    a.password && { label: "Скопировать пароль", icon: "copy", onClick: async () => { (await copy(a.password)) && toast("Пароль скопирован", "success"); }},
+    { label: "На каких донорах", icon: "donors", onClick: () => openDonorsModal(a.id, a.email) },
+    { label: "Скопировать email", icon: "copy", onClick: async () => { (await copy(a.email)) && toast("Email скопирован", "success"); } },
+    a.password && { label: "Скопировать пароль", icon: "copy", onClick: async () => { (await copy(a.password)) && toast("Пароль скопирован", "success"); } },
   ];
   if (isAdmin) {
     menuItems.push({ separator: true });
@@ -140,21 +180,106 @@ function accountRow(a, reload, isAdmin, employees) {
       ? { label: "Деактивировать", icon: "trash", onClick: async () => {
           try { await api.updateEmailAccount(a.id, { is_active: false }); toast("Деактивирован", "success"); reload(); }
           catch (e) { toast(e.message, "error"); }
-        }}
+        } }
       : { label: "Активировать", icon: "check", onClick: async () => {
           try { await api.updateEmailAccount(a.id, { is_active: true }); toast("Активирован", "success"); reload(); }
           catch (e) { toast(e.message, "error"); }
-        }});
+        } });
     menuItems.push({ label: "Удалить", icon: "trash", danger: true, onClick: async () => {
       if (!confirm(`Удалить аккаунт ${a.email}?`)) return;
       try { await api.deleteEmailAccount(a.id); toast("Удалено", "success"); reload(); }
       catch (e) { toast(e.message, "error"); }
-    }});
+    } });
   }
   cells.push(el("td", { class: "right actions" }, menuButton(menuItems.filter(Boolean))));
 
   return el("tr", { style: a.is_active ? null : { opacity: 0.55 } }, ...cells);
 }
+
+// ---------------- By-employee view ----------------
+
+async function mountEmployees(root) {
+  root.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px", marginBottom: "12px" } },
+    "Сколько ящиков закреплено за каждым сотрудником и на скольких донорах они уже использованы."));
+  const wrap = el("div", { class: "table-wrap" });
+  root.appendChild(wrap);
+  wrap.appendChild(tableSkeleton(5, 5));
+
+  let rows;
+  try { rows = await api.emailAccountEmployeeStats(); }
+  catch (e) { wrap.innerHTML = ""; wrap.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message })); return; }
+
+  wrap.innerHTML = "";
+  if (!rows.length) {
+    wrap.appendChild(emptyState({ iconName: "users", title: "Пока нет данных",
+      desc: "Выдайте сотрудникам email-аккаунты из пула — здесь появится их статистика." }));
+    return;
+  }
+  const table = el("table");
+  table.appendChild(el("thead", {}, el("tr", {},
+    el("th", { class: "left" }, "Сотрудник"),
+    el("th", { class: "right" }, "Ящиков закреплено"),
+    el("th", { class: "right" }, "Активных"),
+    el("th", { class: "right" }, "Доноров покрыто"),
+    el("th", { class: "right" }, "Размещений"),
+  )));
+  const tbody = el("tbody");
+  rows.forEach(r => tbody.appendChild(el("tr", {},
+    el("td", { class: "left" },
+      el("div", { style: { display: "flex", alignItems: "center", gap: "8px" } },
+        avatar(r.name, 26),
+        el("div", {},
+          el("div", { style: { fontSize: "13.5px", fontWeight: 500 } }, r.name),
+          el("div", { class: "muted", style: { fontSize: "11.5px" } }, r.email),
+        ),
+      ),
+    ),
+    el("td", { class: "right tabular mono", style: { fontSize: "13px" } }, String(r.assigned_mailboxes)),
+    el("td", { class: "right tabular mono muted", style: { fontSize: "12.5px" } }, String(r.active_mailboxes)),
+    el("td", { class: "right tabular mono", style: { fontSize: "13px" } }, r.donors_covered ? String(r.donors_covered) : el("span", { class: "dimmed" }, "0")),
+    el("td", { class: "right tabular mono", style: { fontSize: "13px" } }, r.placements ? String(r.placements) : el("span", { class: "dimmed" }, "0")),
+  )));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+}
+
+// ---------------- Donors-of-a-mailbox modal ----------------
+
+async function openDonorsModal(accountId, email) {
+  const body = el("div", {}, tableSkeleton(4, 2));
+  openModal({
+    title: `Доноры аккаунта ${email}`,
+    content: body,
+    size: "lg",
+    footer: el("div", { class: "row", style: { justifyContent: "flex-end" } }, el("button", { class: "ghost", onClick: () => closeModal() }, "Закрыть")),
+  });
+  let data;
+  try { data = await api.emailAccountDonors(accountId); }
+  catch (e) { body.innerHTML = ""; body.appendChild(emptyState({ iconName: "alert", title: "Ошибка", desc: e.message })); return; }
+  body.innerHTML = "";
+  const donors = data.donors || [];
+  if (!donors.length) {
+    body.appendChild(emptyState({ iconName: "donors", title: "Ещё не использован",
+      desc: "Этот ящик пока не привязан ни к одному донору." }));
+    return;
+  }
+  const table = el("table");
+  table.appendChild(el("thead", {}, el("tr", {},
+    el("th", { class: "left" }, "Донор"),
+    el("th", { class: "left" }, "Аккаунт (username)"),
+    el("th", {}, "Статус"),
+  )));
+  const tbody = el("tbody");
+  donors.forEach(d => tbody.appendChild(el("tr", {},
+    el("td", { class: "left mono", style: { fontSize: "12.5px" } }, d.domain || `#${d.donor_id}`),
+    el("td", { class: "left mono muted", style: { fontSize: "12px" } }, d.account_username || el("span", { class: "dimmed" }, "—")),
+    el("td", {}, d.is_active ? el("span", { class: "pill success" }, "активен") : el("span", { class: "pill muted" }, "неактивен")),
+  )));
+  table.appendChild(tbody);
+  body.appendChild(el("div", { class: "table-wrap", style: { maxHeight: "420px", overflow: "auto" } }, table));
+}
+
+// ---------------- shared helpers ----------------
 
 function passwordCell(pw) {
   if (!pw) return el("span", { class: "dimmed" }, "—");
@@ -222,7 +347,7 @@ function openForm(account, reload, employees) {
           else await api.createEmailAccount(data);
           toast("Сохранено", "success"); closeModal(); reload();
         } catch (e) { toast(e.message, "error"); }
-      }}, "Сохранить"));
+      } }, "Сохранить"));
       return f;
     })(),
   });

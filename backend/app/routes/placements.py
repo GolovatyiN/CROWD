@@ -131,6 +131,8 @@ def my_tasks(
             .order_by(Placement.id.desc())
             .first()
         )
+        # If the donor already has an account, surface it so the employee reuses
+        # the same login on a repeat placement instead of registering a new one.
         suggested = None
         if donor and not placement:
             acc = suggest_account(db, donor.id)
@@ -138,7 +140,9 @@ def my_tasks(
                 suggested = {
                     "id": acc.id,
                     "login_email": acc.login_email,
+                    "login_password": acc.login_password,
                     "account_username": acc.account_username,
+                    "email_account_id": acc.email_account_id,
                 }
         out.append({
             "item_id": it.id,

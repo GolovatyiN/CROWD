@@ -105,10 +105,20 @@ function taskRow(t, num, reload, accounts) {
   let placement = t.placement;
 
   let selectedAccount = null;
+  let overrideAccount = false;  // employee chose to pick a pool box instead of reusing the donor account
   function resolveSelectedAccount() {
+    const sug = t.suggested_account;
     if (placement?.login_email) {
       selectedAccount = (accounts || []).find(a => a.email === placement.login_email)
         || { email: placement.login_email, password: placement.login_password || "" };
+    } else if (sug && !overrideAccount) {
+      // Donor already has an account → reuse the same login on this placement.
+      selectedAccount = {
+        reused: true,
+        email: sug.login_email || "",
+        password: sug.login_password || "",
+        username: sug.account_username || "",
+      };
     } else if (accounts && accounts.length) {
       selectedAccount = accounts[0];
     } else {
@@ -147,9 +157,23 @@ function taskRow(t, num, reload, accounts) {
     if (isPlaced) {
       if (selectedAccount?.email) { renderCreds(); accountCell.appendChild(credsBox); }
       else accountCell.appendChild(el("span", { class: "dimmed" }, "—"));
+    } else if (selectedAccount?.reused) {
+      // Donor already has an account — show it's being reused, with an escape hatch.
+      accountCell.appendChild(el("div", { style: { display: "flex", alignItems: "center", gap: "5px", fontSize: "11.5px", fontWeight: 500, color: "var(--success)" } },
+        icon("refresh", { size: 11 }), el("span", {}, "Аккаунт донора подставлен")));
+      if (selectedAccount.username) accountCell.appendChild(el("div", { class: "mono", style: { fontSize: "11.5px", marginTop: "1px" } }, selectedAccount.username));
+      renderCreds();
+      accountCell.appendChild(credsBox);
+      accountCell.appendChild(el("button", { class: "subtle small", style: { fontSize: "11px", marginTop: "3px", padding: "0", opacity: 0.75 },
+        onClick: () => { overrideAccount = true; resolveSelectedAccount(); paint(); } }, "выбрать другой"));
     } else if (accounts && accounts.length) {
       const sel = document.createElement("select");
       sel.style.fontSize = "12px";
+      // Explicit "register a fresh account" choice when no donor account exists.
+      const newOpt = document.createElement("option");
+      newOpt.value = "__new__"; newOpt.textContent = "🆕 Новая регистрация";
+      if (!selectedAccount) newOpt.selected = true;
+      sel.appendChild(newOpt);
       accounts.forEach((a) => {
         const o = document.createElement("option");
         o.value = String(a.id);
@@ -158,14 +182,17 @@ function taskRow(t, num, reload, accounts) {
         sel.appendChild(o);
       });
       sel.addEventListener("change", (e) => {
-        selectedAccount = accounts.find(a => String(a.id) === e.target.value) || null;
+        selectedAccount = e.target.value === "__new__" ? null : (accounts.find(a => String(a.id) === e.target.value) || null);
         renderCreds();
       });
       accountCell.appendChild(sel);
+      if (!t.suggested_account && donor) {
+        accountCell.appendChild(el("div", { class: "muted", style: { fontSize: "10.5px", marginTop: "2px" } }, "у донора нет аккаунта — выберите ящик или новую регистрацию"));
+      }
       accountCell.appendChild(credsBox);
       renderCreds();
     } else {
-      accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } }, "нет выданных аккаунтов"));
+      accountCell.appendChild(el("span", { class: "dimmed", style: { fontSize: "11.5px" } }, "нет свободных ящиков — нужна новая регистрация"));
     }
 
     // --- actions cell ---
@@ -229,7 +256,7 @@ function taskRow(t, num, reload, accounts) {
         result_url: url,
         login_email: selectedAccount?.email || placement.login_email || "",
         login_password: selectedAccount?.password || placement.login_password || "",
-        account_username: selectedAccount?.label || placement.account_username || "",
+        account_username: selectedAccount?.username || selectedAccount?.label || placement.account_username || "",
         comment: placement.comment || "",
       });
       placement = updated; t.placement = updated; t.status = "placed";
@@ -350,11 +377,22 @@ async function openPlacedForm(placement, task, onSaved) {
   );
   form.appendChild(pickerWrap);
 
+  // Donor already has an account → offer to reuse its login (prefill below).
+  const sug = task?.suggested_account;
+  const reuse = !placement.login_email && !placement.account_username && !!sug;
+
   // --- Editable credentials ---------------------------------------------
-  const emailInput = el("input", { name: "login_email", type: "email", value: placement.login_email || "" });
-  const pwInput = el("input", { name: "login_password", type: "text", value: placement.login_password || "" });
-  const userInput = el("input", { name: "account_username", type: "text", value: placement.account_username || task?.suggested_account?.account_username || "" });
+  const emailInput = el("input", { name: "login_email", type: "email", value: placement.login_email || (reuse ? sug.login_email : "") || "" });
+  const pwInput = el("input", { name: "login_password", type: "text", value: placement.login_password || (reuse ? sug.login_password : "") || "" });
+  const userInput = el("input", { name: "account_username", type: "text", value: placement.account_username || sug?.account_username || "" });
   const resultInput = el("input", { name: "result_url", type: "url", value: placement.result_url || "", required: "" });
+
+  if (reuse) {
+    form.appendChild(el("div", { style: { display: "flex", alignItems: "center", gap: "6px", padding: "8px 10px", marginBottom: "10px",
+      background: "var(--success-bg, rgba(34,197,94,.1))", border: "1px solid var(--border)", borderRadius: "var(--r-md)", fontSize: "12px", color: "var(--text-2)" } },
+      icon("refresh", { size: 13 }),
+      el("span", {}, `Аккаунт донора подставлен: ${sug.account_username || sug.login_email || "—"}. Можно переиспользовать или заменить.`)));
+  }
 
   form.appendChild(el("div", { class: "field" }, el("label", {}, "Ссылка на результат *"), resultInput));
   form.appendChild(el("div", { class: "field" }, el("label", {}, "Email для входа"), emailInput));

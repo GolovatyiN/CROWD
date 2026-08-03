@@ -1,12 +1,12 @@
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user, require_admin
+from ..auth import INTERNAL_ROLES, get_current_user, require_admin
 from ..database import get_db
-from ..models import DonorAccount, EmailAccount, Placement, User
+from ..models import Donor, DonorAccount, EmailAccount, Placement, User
 from ..schemas import EmailAccountCreate, EmailAccountOut, EmailAccountUpdate
 
 router = APIRouter(prefix="/email-accounts", tags=["email_accounts"])
@@ -92,6 +92,98 @@ def list_accounts(
             names[u.id] = u.full_name or u.email
 
     return [_to_out(a, usage_map, names, donors_map) for a in accounts]
+
+
+@router.get("/stats/by-employee")
+def stats_by_employee(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Per-employee mailbox picture: how many mailboxes are pinned to each
+    person, how many are still active, how many distinct donors those mailboxes
+    have served, and how many placements the person has done. Feeds the
+    «По сотрудникам» view on the Accounts screen.
+    """
+    # Mailboxes assigned to each employee (total + active).
+    mb_rows = db.execute(
+        select(
+            EmailAccount.assigned_to,
+            func.count(EmailAccount.id),
+            func.sum(case((EmailAccount.is_active.is_(True), 1), else_=0)),
+        )
+        .where(EmailAccount.assigned_to.isnot(None))
+        .group_by(EmailAccount.assigned_to)
+    ).all()
+    assigned_map = {uid: (total, active or 0) for uid, total, active in mb_rows}
+
+    # Distinct donors served through each employee's assigned mailboxes.
+    donor_rows = db.execute(
+        select(EmailAccount.assigned_to, func.count(func.distinct(DonorAccount.donor_id)))
+        .join(DonorAccount, DonorAccount.email_account_id == EmailAccount.id)
+        .where(EmailAccount.assigned_to.isnot(None))
+        .group_by(EmailAccount.assigned_to)
+    ).all()
+    donors_map = {uid: cnt for uid, cnt in donor_rows}
+
+    # Placements made by each employee.
+    placement_rows = db.execute(
+        select(Placement.employee_id, func.count(Placement.id))
+        .where(Placement.status == "placed", Placement.employee_id.isnot(None))
+        .group_by(Placement.employee_id)
+    ).all()
+    placements_map = {uid: cnt for uid, cnt in placement_rows}
+
+    users = (
+        db.query(User)
+        .filter(User.role.in_(INTERNAL_ROLES))
+        .order_by(User.full_name.asc())
+        .all()
+    )
+    out = []
+    for u in users:
+        total, active = assigned_map.get(u.id, (0, 0))
+        placed = placements_map.get(u.id, 0)
+        # Skip staff with no mailboxes and no placements — noise.
+        if not total and not placed:
+            continue
+        out.append({
+            "user_id": u.id,
+            "name": u.full_name or u.email,
+            "email": u.email,
+            "role": u.role,
+            "assigned_mailboxes": total,
+            "active_mailboxes": active,
+            "donors_covered": donors_map.get(u.id, 0),
+            "placements": placed,
+        })
+    out.sort(key=lambda r: (r["assigned_mailboxes"], r["placements"]), reverse=True)
+    return out
+
+
+@router.get("/{account_id}/donors")
+def account_donors(
+    account_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    """Which donors a given mailbox has been used on (via the pool ↔ donor link)."""
+    acc = db.get(EmailAccount, account_id)
+    if not acc:
+        raise HTTPException(status_code=404, detail="Аккаунт не найден")
+    rows = (
+        db.query(Donor.id, Donor.domain, DonorAccount.account_username, DonorAccount.is_active)
+        .join(DonorAccount, DonorAccount.donor_id == Donor.id)
+        .filter(DonorAccount.email_account_id == account_id)
+        .order_by(Donor.domain.asc())
+        .all()
+    )
+    return {
+        "email": acc.email,
+        "donors": [
+            {"donor_id": did, "domain": domain, "account_username": username, "is_active": bool(active)}
+            for did, domain, username, active in rows
+        ],
+    }
 
 
 def _name_for(db: Session, user_id: Optional[int]) -> dict[int, str]:

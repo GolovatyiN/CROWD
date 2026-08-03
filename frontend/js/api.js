@@ -83,6 +83,8 @@ export const api = {
 
   // email accounts (shared pool used to sign up on donors)
   emailAccounts: (params = {}) => request(`/email-accounts?${qs(params)}`),
+  emailAccountEmployeeStats: () => request("/email-accounts/stats/by-employee"),
+  emailAccountDonors: (id) => request(`/email-accounts/${id}/donors`),
   createEmailAccount: (data) => request("/email-accounts", { method: "POST", body: data }),
   updateEmailAccount: (id, data) => request(`/email-accounts/${id}`, { method: "PATCH", body: data }),
   deleteEmailAccount: (id) => request(`/email-accounts/${id}`, { method: "DELETE" }),
@@ -175,7 +177,7 @@ export const api = {
   markAllNotificationsRead: () => request("/notifications/read-all", { method: "POST" }),
 
   // dashboard
-  stats: () => request("/dashboard/stats"),
+  stats: (kind) => request(`/dashboard/stats${kind ? `?kind=${kind}` : ""}`),
 
   // admin maintenance
   resetAllData: () => request("/admin/reset-data", { method: "POST" }).then(r => {

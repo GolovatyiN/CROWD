@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta
+from typing import Optional
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
-from ..auth import get_current_user, require_admin
+from ..auth import INTERNAL_ROLES, get_current_user, require_admin
 from ..database import get_db
 from ..utils import iso_utc
 from ..models import (
     AnchorPlan,
     AnchorPlanItem,
+    Client,
     Donor,
     Placement,
     StopListEntry,
@@ -20,13 +22,24 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
 @router.get("/stats")
-def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+def stats(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+    kind: Optional[str] = None,
+):
     """Heavy endpoint — consolidate into a small number of aggregated queries.
 
     Prior version fired ~30 small SELECTs (one per stat, one per day for the
     sparkline, one per employee). Over a transatlantic link that's seconds of
     overhead. Now: one CASE-WHEN aggregate per table.
+
+    ``kind`` scopes the whole board to one contour — ``internal`` (наши) or
+    ``client`` (клиентские). ``None``/empty = everything combined. Shared
+    resources (donors, stop-list) stay global regardless — they're not split
+    by contour. A per-client breakdown is always returned so the client side
+    can be read at a glance.
     """
+    kind_f = kind if kind in ("internal", "client") else None
     now = datetime.utcnow()
     today_start = datetime(now.year, now.month, now.day)
     yesterday_start = today_start - timedelta(days=1)
@@ -44,17 +57,17 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     donors_active = donor_row.active or 0
 
     # ---- Plan items aggregate ----
-    item_rows = (
-        db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
-        .group_by(AnchorPlanItem.status)
-        .all()
-    )
+    item_q = db.query(AnchorPlanItem.status, func.count(AnchorPlanItem.id))
+    if kind_f:
+        item_q = item_q.filter(AnchorPlanItem.kind == kind_f)
+    item_rows = item_q.group_by(AnchorPlanItem.status).all()
     by_status = {s: c for s, c in item_rows}
     items_total = sum(by_status.values())
 
     # ---- Placements aggregate: counts for today / yesterday / week / prev week / month / all ----
     placed = Placement.status == "placed"
-    placement_row = db.query(
+    placement_base = db.query(
+
         func.count(Placement.id).label("total"),
         func.sum(case((placed & (Placement.placed_at >= today_start), 1), else_=0)).label("today"),
         func.sum(case(
@@ -67,7 +80,10 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
             else_=0,
         )).label("prev_week"),
         func.sum(case((placed & (Placement.placed_at >= month_start), 1), else_=0)).label("month"),
-    ).one()
+    )
+    if kind_f:
+        placement_base = placement_base.filter(Placement.kind == kind_f)
+    placement_row = placement_base.one()
     placements_total = placement_row.total or 0
     placements_today = placement_row.today or 0
     placements_yesterday = placement_row.yesterday or 0
@@ -77,12 +93,13 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
 
     # ---- 14-day series: one query, grouped by day ----
     day_col = func.date(Placement.placed_at)
-    series_rows = (
+    series_q = (
         db.query(day_col.label("d"), func.count(Placement.id))
         .filter(Placement.status == "placed", Placement.placed_at >= series_start)
-        .group_by(day_col)
-        .all()
     )
+    if kind_f:
+        series_q = series_q.filter(Placement.kind == kind_f)
+    series_rows = series_q.group_by(day_col).all()
     series_counts = {str(r[0]): r[1] for r in series_rows}
     series = []
     for i in range(13, -1, -1):
@@ -91,11 +108,15 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
         series.append({"date": key, "count": series_counts.get(key, 0)})
 
     # ---- Top employees (single grouped query, join user names) ----
-    top_rows = (
+    top_q = (
         db.query(User.id, User.email, User.full_name, func.count(Placement.id).label("cnt"))
         .join(Placement, Placement.employee_id == User.id)
         .filter(Placement.status == "placed")
-        .group_by(User.id, User.email, User.full_name)
+    )
+    if kind_f:
+        top_q = top_q.filter(Placement.kind == kind_f)
+    top_rows = (
+        top_q.group_by(User.id, User.email, User.full_name)
         .order_by(func.count(Placement.id).desc())
         .limit(5)
         .all()
@@ -106,14 +127,14 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     ]
 
     # ---- Recent activity (placements joined with user) ----
-    recent_q = (
+    recent_base = (
         db.query(Placement, User.full_name, User.email)
         .outerjoin(User, User.id == Placement.employee_id)
         .filter(Placement.status == "placed")
-        .order_by(Placement.placed_at.desc())
-        .limit(8)
-        .all()
     )
+    if kind_f:
+        recent_base = recent_base.filter(Placement.kind == kind_f)
+    recent_q = recent_base.order_by(Placement.placed_at.desc()).limit(8).all()
     recent_activity = [
         {
             "id": p.id,
@@ -127,14 +148,14 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     ]
 
     # ---- Problem items (single query joined with plan names) ----
-    problem_q = (
+    problem_base = (
         db.query(AnchorPlanItem, AnchorPlan.plan_name)
         .outerjoin(AnchorPlan, AnchorPlan.id == AnchorPlanItem.anchor_plan_id)
         .filter(AnchorPlanItem.status == "problem")
-        .order_by(AnchorPlanItem.updated_at.desc())
-        .limit(8)
-        .all()
     )
+    if kind_f:
+        problem_base = problem_base.filter(AnchorPlanItem.kind == kind_f)
+    problem_q = problem_base.order_by(AnchorPlanItem.updated_at.desc()).limit(8).all()
     problems = [
         {
             "id": it.id,
@@ -152,7 +173,7 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     done_when = AnchorPlanItem.status.in_(["placed", "done"])
     in_progress_when = AnchorPlanItem.status.in_(["assigned", "in_progress", "donor_selected"])
     problem_when = AnchorPlanItem.status.in_(["problem", "rejected"])
-    emp_rows = (
+    emp_q = (
         db.query(
             User.id,
             User.full_name,
@@ -163,8 +184,14 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
             func.sum(case((problem_when, 1), else_=0)).label("problems"),
         )
         .join(AnchorPlanItem, AnchorPlanItem.assigned_to == User.id)
-        .filter(User.is_active.is_(True), User.role == "employee")
-        .group_by(User.id, User.full_name, User.email)
+        # "employee" was never a real role — internal staff are user/teamlead/
+        # manager/admin. Filtering on the phantom role left this panel empty.
+        .filter(User.is_active.is_(True), User.role.in_(INTERNAL_ROLES))
+    )
+    if kind_f:
+        emp_q = emp_q.filter(AnchorPlanItem.kind == kind_f)
+    emp_rows = (
+        emp_q.group_by(User.id, User.full_name, User.email)
         .order_by(func.count(AnchorPlanItem.id).desc())
         .all()
     )
@@ -181,7 +208,38 @@ def stats(db: Session = Depends(get_db), _: User = Depends(require_admin)):
         for r in emp_rows
     ]
 
+    # ---- Always-on contour split (independent of the `kind` scope) so the UI
+    # toggle can show both totals side by side without a second request. ----
+    split_rows = (
+        db.query(Placement.kind, func.count(Placement.id))
+        .filter(Placement.status == "placed")
+        .group_by(Placement.kind)
+        .all()
+    )
+    split = {k: c for k, c in split_rows}
+    placements_internal = split.get("internal", 0)
+    placements_client = sum(c for k, c in split.items() if k and k != "internal")
+
+    # ---- Per-client breakdown (client contour only — internal has no client). ----
+    client_rows = (
+        db.query(Client.id, Client.name, func.count(Placement.id).label("cnt"))
+        .join(Placement, Placement.client_id == Client.id)
+        .filter(Placement.status == "placed")
+        .group_by(Client.id, Client.name)
+        .order_by(func.count(Placement.id).desc())
+        .limit(10)
+        .all()
+    )
+    by_client = [
+        {"client_id": r.id, "name": r.name or f"Клиент #{r.id}", "count": r.cnt}
+        for r in client_rows
+    ]
+
     return {
+        "kind": kind_f or "all",
+        "placements_internal": placements_internal,
+        "placements_client": placements_client,
+        "by_client": by_client,
         "donors_total": donors_total,
         "donors_active": donors_active,
         "items_total": items_total,
