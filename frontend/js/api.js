@@ -155,6 +155,8 @@ export const api = {
   clientMyProjects: () => request("/client/projects"),
   clientMyProject: (id) => request(`/client/projects/${id}`),
   clientMyProjectPlacements: (id) => request(`/client/projects/${id}/placements`),
+  clientProjectReport: (id) => downloadFile(`/client/projects/${id}/report`, `report_${id}.csv`),
+  clientProjectReportInternal: (id) => downloadFile(`/client-projects/${id}/report`, `project_${id}_report.csv`),
 
   // link monitor + ready-link checks
   linkMonitorSummary: (params = {}) => request(`/link-monitor/summary?${qs(params)}`),

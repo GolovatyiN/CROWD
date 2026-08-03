@@ -170,6 +170,7 @@ function projectRow(p, clientId, users, isAdmin) {
     el("td", { class: "right tabular mono" }, String((p.member_ids || []).length)),
     el("td", { class: "right actions" }, menuButton([
       { label: "Импортировать план", icon: "upload", onClick: () => { sessionStorage.setItem("import_client_project", String(p.id)); location.hash = "#/import-export"; } },
+      { label: "Скачать отчёт", icon: "download", onClick: () => api.clientProjectReportInternal(p.id).catch(e => toast(e.message, "error")) },
       isAdmin && { label: "Редактировать", icon: "pencil", onClick: () => projectModal(clientId, p, users, () => location.reload()) },
       isAdmin && { separator: true },
       isAdmin && { label: "В архив", icon: "trash", danger: true, onClick: async () => {

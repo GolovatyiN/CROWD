@@ -3,9 +3,12 @@
 Managed by admins (managers get access in Phase 3). Deleting is a soft archive
 (status='archived') so linked plans/placements keep their history.
 """
+import csv
+import io
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -16,9 +19,12 @@ from ..models import (
     Client,
     ClientProject,
     ClientProjectMember,
+    LinkCheck,
     Placement,
     User,
 )
+from ..services.matcher import extract_domain
+from ..utils import iso_utc
 from ..schemas import (
     ClientCreate,
     ClientOut,
@@ -238,3 +244,33 @@ def archive_client_project(project_id: int, db: Session = Depends(get_db), actor
     audit.log(db, actor, "client_project.archive", target_id=p.id, target_label=p.name, target_type="client_project")
     db.commit()
     return {"ok": True}
+
+
+@router.get("/client-projects/{project_id}/report")
+def client_project_report_internal(project_id: int, db: Session = Depends(get_db), _: User = Depends(require_manager)):
+    """Full internal CSV report for a client project (managers)."""
+    p = db.get(ClientProject, project_id)
+    if not p:
+        raise HTTPException(status_code=404, detail="Проект не найден")
+    rows = (
+        db.query(Placement, LinkCheck)
+        .outerjoin(LinkCheck, LinkCheck.placement_id == Placement.id)
+        .filter(Placement.client_project_id == project_id)
+        .order_by(Placement.placed_at.desc()).all()
+    )
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["target_url", "anchor", "donor_url", "donor_domain", "ready_link",
+                "placed_at", "employee_id", "placement_status", "link_status", "http", "dofollow", "last_checked"])
+    for pl, lc in rows:
+        w.writerow([
+            pl.target_url, pl.anchor_text, pl.donor_url, extract_domain(pl.donor_url), pl.result_url,
+            iso_utc(pl.placed_at) or "", pl.employee_id or "", pl.status,
+            lc.status if lc else "", lc.http_status if lc else "",
+            lc.is_dofollow if lc else "", iso_utc(lc.last_checked_at) if lc else "",
+        ])
+    return StreamingResponse(
+        io.BytesIO(("﻿" + buf.getvalue()).encode("utf-8")),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="project_{project_id}_report.csv"'},
+    )

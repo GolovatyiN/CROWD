@@ -27,5 +27,9 @@ class Settings(BaseSettings):
     link_check_batch: int = 20                 # checks claimed per pass
     link_check_max_attempts: int = 5           # transient retries before manual
 
+    # Whether the client cabinet exposes problem statuses (link gone/anchor
+    # changed) as "проблема", or masks them as "на проверке". Default: mask.
+    client_shows_problems: bool = False
+
 
 settings = Settings()

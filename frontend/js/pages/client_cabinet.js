@@ -6,12 +6,12 @@ import { icon } from "../components/icons.js";
 import { toast } from "../components/toast.js";
 
 const PROJECT_STATUS = { active: "Активен", paused: "На паузе", done: "Завершён", archived: "В архиве" };
-// Placeholder link statuses — the automated link check (Фаза 5) will fill these.
-const LINK_STATUS = { placed: "Размещена", done: "Размещена", problem: "Проблема" };
+// Client-safe link status (mapped server-side from the automated check).
+const LINK_STATUS = { active: "Активна", checking: "На проверке", problem: "Проблема" };
 
-function statChip(status) {
-  const v = status === "placed" || status === "done" ? "success" : status === "problem" ? "error" : "muted";
-  return pill(LINK_STATUS[status] || status || "—", v);
+function linkChip(status) {
+  const v = status === "active" ? "success" : status === "problem" ? "error" : "info";
+  return pill(LINK_STATUS[status] || "На проверке", v);
 }
 
 function statCard(label, value, sub) {
@@ -109,7 +109,7 @@ export async function renderClientProject(host, projectId) {
       el("div", { class: "page-subtitle" }, `${project.promoted_domain || ""} · план ${project.planned_count} · размещено ${project.completed_rows}/${project.total_rows}`),
     ),
     el("div", { class: "page-actions" },
-      el("button", { class: "ghost", onClick: () => downloadReport(project, placements) }, icon("download", { size: 14 }), el("span", {}, "Скачать отчёт")),
+      el("button", { class: "ghost", onClick: () => api.clientProjectReport(projectId).catch(e => toast(e.message, "error")) }, icon("download", { size: 14 }), el("span", {}, "Скачать отчёт")),
     ),
   ));
 
@@ -125,7 +125,7 @@ export async function renderClientProject(host, projectId) {
     el("th", { class: "left" }, "Анкор"),
     el("th", { class: "left" }, "Донор"),
     el("th", { class: "left" }, "Ready link"),
-    el("th", {}, "Статус"),
+    el("th", {}, "Статус ссылки"),
     el("th", {}, "Дата"),
   )));
   const tbody = el("tbody");
@@ -136,21 +136,10 @@ export async function renderClientProject(host, projectId) {
     el("td", { class: "left" }, p.result_url
       ? el("a", { href: p.result_url, target: "_blank", rel: "noopener", class: "mono", style: { fontSize: "12px" } }, "открыть ↗")
       : el("span", { class: "dimmed" }, "—")),
-    el("td", {}, statChip(p.status)),
+    el("td", {}, linkChip(p.link_status)),
     el("td", { class: "muted", style: { fontSize: "12px" } }, fmtDate(p.placed_at)),
   )));
   table.appendChild(tbody);
   wrap.appendChild(table);
 }
 
-function downloadReport(project, placements) {
-  // Client-side CSV of what the client already sees (Фаза 10 adds a server report).
-  const head = ["target_url", "anchor", "donor_domain", "ready_link", "status", "placed_at"];
-  const rows = placements.map(p => [p.target_url, p.anchor_text, p.donor_domain, p.result_url, p.status, p.placed_at || ""]);
-  const csv = [head, ...rows].map(r => r.map(v => `"${String(v ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
-  a.download = `report_${project.name}.csv`;
-  document.body.appendChild(a); a.click(); a.remove();
-  toast("Отчёт скачан", "success");
-}
