@@ -19,26 +19,48 @@ export async function renderImportExport(host) {
     exportFn: () => api.exportDonors(),
   }));
 
-  // Client projects for the "import as client plan" selector. Preselect comes
+  // Clients + projects for the "import as client plan" selector. Preselect comes
   // from a project's "Импортировать план" action (via sessionStorage).
-  const clientProjects = await api.clientProjects().catch(() => []);
+  let clients = [], clientProjects = [], projectsError = null;
+  try {
+    [clients, clientProjects] = await Promise.all([api.clients(), api.clientProjects()]);
+  } catch (e) {
+    projectsError = e.message;
+  }
+  const clientName = Object.fromEntries(clients.map(c => [c.id, c.name]));
   const preselectProject = sessionStorage.getItem("import_client_project") || "";
   sessionStorage.removeItem("import_client_project");
+
   host.appendChild(section({
     title: "Анкор-план",
-    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, anchor_type (тип анкора), geo, language, priority, requirements. Формат 2 — добавьте колонку quantity (количество): такая строка станет агрегированной позицией на N размещений без создания N одинаковых строк; задания создаются кнопкой «Распределить». Выберите клиентский проект, чтобы загрузить план как клиентский.",
+    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, anchor_type (тип анкора), geo, language, priority, requirements. Формат 2 — добавьте колонку quantity (количество): такая строка станет агрегированной позицией на N размещений без создания N одинаковых строк; задания создаются кнопкой «Распределить».",
     extraFields: [{ name: "plan_name", label: "Название плана", placeholder: "по умолчанию — имя файла" }],
     selectFields: [{
       name: "client_project",
-      label: "Клиентский проект",
+      label: "Для кого этот план?",
       value: preselectProject,
       options: [
-        { value: "", label: "— Наш план (internal) —" },
-        ...clientProjects.map(p => ({ value: String(p.id), label: p.name })),
+        { value: "", label: "Наш проект компании (внутренний)" },
+        ...clientProjects.map(p => ({ value: String(p.id), label: `Клиент: ${clientName[p.client_id] || "—"} → ${p.name}` })),
       ],
     }],
     importFn: async (file, extra) => api.importPlan(file, extra.plan_name || "", extra.client_project || null),
   }));
+
+  // Guidance right under the plan section: how to make it a CLIENT plan.
+  if (projectsError) {
+    host.appendChild(callout("warning",
+      "Не удалось загрузить список клиентских проектов: ", el("b", {}, projectsError),
+      ". Импорт «нашего» плана работает; для клиентского — обновите страницу или сообщите об ошибке."));
+  } else if (!clientProjects.length) {
+    host.appendChild(callout("info",
+      "Чтобы загрузить план ", el("b", {}, "для клиента"), ", сначала создайте клиента и проект в разделе ",
+      el("a", { href: "#/clients", style: { fontWeight: 600, textDecoration: "underline" } }, "«Клиенты»"),
+      ", затем вернитесь сюда и выберите его в поле «Для кого этот план?». По умолчанию план загружается как ", el("b", {}, "наш (внутренний)"), "."));
+  } else {
+    host.appendChild(callout("info",
+      "Оставьте «Наш проект компании» для внутреннего плана, либо выберите клиента и проект в поле «Для кого этот план?», чтобы загрузить его как клиентский."));
+  }
 
   host.appendChild(section({
     title: "Стоп-лист",
@@ -215,6 +237,19 @@ function section({ title, hint, importFn, exportFn, extraFields = [], selectFiel
   });
 
   return wrap;
+}
+
+function callout(variant, ...children) {
+  const c = variant === "warning"
+    ? { bg: "var(--warning-bg)", border: "var(--warning-border)" }
+    : { bg: "var(--info-bg)", border: "var(--info-border)" };
+  return el("div", {
+    style: {
+      fontSize: "12.5px", color: "var(--text-2)", lineHeight: 1.5,
+      margin: "-6px 0 18px", padding: "10px 12px",
+      background: c.bg, border: `1px solid ${c.border}`, borderRadius: "8px",
+    },
+  }, ...children);
 }
 
 function resultBlock(r) {
