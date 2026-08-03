@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette.middleware.gzip import GZipMiddleware
 
 from .database import SessionLocal, engine, get_db
-from .routes import admin, anchor_plans, audit, auth, client_portal, clients, dashboard, donors, email_accounts, placements, stop_list, users
+from .routes import admin, anchor_plans, audit, auth, client_portal, clients, dashboard, donors, email_accounts, link_monitor, placements, stop_list, users
 
 # Identifies this exact process instance so we can cache-bust the entrypoint
 # bundle. Changes on every deploy / restart.
@@ -101,6 +101,7 @@ app.include_router(email_accounts.router)
 app.include_router(admin.router)
 app.include_router(clients.router)
 app.include_router(client_portal.router)
+app.include_router(link_monitor.router)
 
 
 @app.get("/api/health")

@@ -156,6 +156,14 @@ export const api = {
   clientMyProject: (id) => request(`/client/projects/${id}`),
   clientMyProjectPlacements: (id) => request(`/client/projects/${id}/placements`),
 
+  // link monitor + ready-link checks
+  linkMonitorSummary: (params = {}) => request(`/link-monitor/summary?${qs(params)}`),
+  linkMonitorItems: (params = {}) => request(`/link-monitor/items?${qs(params)}`),
+  recheckPlacement: (id) => request(`/placements/${id}/recheck`, { method: "POST" }),
+  placementChecks: (id) => request(`/placements/${id}/checks`),
+  linkCheckStatus: () => request("/admin/link-check/status"),
+  linkCheckRun: (limit = 50) => request(`/admin/link-check/run?limit=${limit}`, { method: "POST" }),
+
   // dashboard
   stats: () => request("/dashboard/stats"),
 
