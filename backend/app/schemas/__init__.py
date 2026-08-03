@@ -315,6 +315,14 @@ class StopListOut(ORMModel):
     source_anchor_plan: str
     comment: str
     kind: str = "internal"
+    # Hierarchy + scoping (Phase B)
+    client_id: Optional[int] = None
+    client_project_id: Optional[int] = None
+    level: str = "internal"
+    scope: str = "anchor"
+    reason: str = ""
+    source: str = "manual"
+    status: str = "active"
 
 
 # ---------- Clients & client projects ----------

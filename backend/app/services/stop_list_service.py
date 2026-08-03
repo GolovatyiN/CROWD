@@ -59,6 +59,13 @@ def register_placement(
         source_anchor_plan=plan_name,
         comment=placement.comment,
         kind=getattr(placement, "kind", "internal") or "internal",
+        # Hierarchy/scoping: a client placement lands at the project level and is
+        # tagged with its client + project; internal placements stay internal.
+        client_id=getattr(placement, "client_id", None),
+        client_project_id=getattr(placement, "client_project_id", None),
+        level="project" if getattr(placement, "client_id", None) else "internal",
+        source="auto",
+        reason="Авто: размещение выполнено",
     )
     db.add(entry)
     db.flush()

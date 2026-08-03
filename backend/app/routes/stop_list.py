@@ -37,6 +37,11 @@ def list_stop_list(
     target_domain: Optional[str] = None,
     donor_url: Optional[str] = None,
     placed_by: Optional[int] = None,
+    client_id: Optional[int] = None,
+    client_project_id: Optional[int] = None,
+    level: Optional[str] = None,
+    source: Optional[str] = None,
+    status: Optional[str] = None,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
     sort: str = "placed_at",
@@ -45,6 +50,16 @@ def list_stop_list(
     offset: int = 0,
 ):
     query = db.query(StopListEntry)
+    if client_id is not None:
+        query = query.filter(StopListEntry.client_id == client_id)
+    if client_project_id is not None:
+        query = query.filter(StopListEntry.client_project_id == client_project_id)
+    if level:
+        query = query.filter(StopListEntry.level == level)
+    if source:
+        query = query.filter(StopListEntry.source == source)
+    if status:
+        query = query.filter(StopListEntry.status == status)
     if q:
         like = f"%{q.lower()}%"
         query = query.filter(or_(

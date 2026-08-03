@@ -638,6 +638,7 @@ def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Opt
             comment=p.get("comment", ""),
             placed_by=user_id,
             source_anchor_plan="(импортировано)",
+            source="import",
         )
         db.add(entry)
         inserted += 1

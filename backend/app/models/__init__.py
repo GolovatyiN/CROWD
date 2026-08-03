@@ -181,6 +181,16 @@ class StopListEntry(Base):
     source_anchor_plan: Mapped[str] = mapped_column(String(255), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
     kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # tag only; dedup stays global
+    # Hierarchy + scoping (Раздел 4A.8–4A.11): where a rule lives and who it
+    # affects. Legacy rows keep client_id/client_project_id NULL and are matched
+    # by target_url exactly as before (the matcher treats NULL scope as global).
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=True, index=True)
+    client_project_id: Mapped[int | None] = mapped_column(ForeignKey("client_projects.id", ondelete="CASCADE"), nullable=True, index=True)
+    level: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # global|internal|client|project|campaign
+    scope: Mapped[str] = mapped_column(String(24), default="anchor", server_default="anchor", nullable=False)  # anchor|exact_url|domain|domain_subdomains|donor_target|project
+    reason: Mapped[str] = mapped_column(String(255), default="")
+    source: Mapped[str] = mapped_column(String(24), default="manual", server_default="manual", nullable=False)  # manual|import|auto|historical|client_forbidden
+    status: Mapped[str] = mapped_column(String(16), default="active", server_default="active", nullable=False, index=True)  # active|inactive
 
     # Uniqueness is per ANCHOR, not per target_url. The same donor must not
     # repeat within one anchor (target_url + anchor_text), but the same donor
