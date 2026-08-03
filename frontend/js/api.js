@@ -137,7 +137,7 @@ export const api = {
 
   // stop list
   stopList: (params = {}) => request(`/stop-list?${qs(params)}`),
-  importStopList: (file) => uploadFile("/stop-list/import", file),
+  importStopList: (file, clientId) => uploadFile("/stop-list/import", file, clientId ? { client_id: clientId } : {}),
   exportStopList: () => downloadFile("/stop-list/export", "stop_list.csv"),
   deleteStopEntry: (id) => request(`/stop-list/${id}`, { method: "DELETE" }),
 

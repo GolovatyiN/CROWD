@@ -2,14 +2,14 @@ from datetime import datetime
 from typing import Optional
 import io
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from ..auth import require_admin, require_staff
 from ..database import get_db
-from ..models import StopListEntry, User
+from ..models import Client, StopListEntry, User
 from ..schemas import ImportPreview, StopListOut
 from ..services import audit
 from ..services.importer import import_stop_list, stop_list_to_csv
@@ -105,17 +105,24 @@ def list_stop_list(
 @router.post("/import", response_model=ImportPreview)
 async def import_route(
     file: UploadFile = File(...),
+    client_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
+    # client_id → import into THAT client's stop-list (isolated contour);
+    # empty → our internal stop-list.
+    if client_id and not db.get(Client, client_id):
+        raise HTTPException(status_code=400, detail="Клиент не найден")
     content = await file.read()
     try:
-        result = import_stop_list(db, content, file.filename or "stop_list", user.id)
+        result = import_stop_list(db, content, file.filename or "stop_list", user.id, client_id=client_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     audit.log(
         db, user, "stoplist.import",
         target_label=file.filename or "стоп-лист",
+        kind=("client" if client_id else "internal"),
+        client_id=client_id,
         добавлено=getattr(result, "rows_inserted", 0),
     )
     db.commit()

@@ -65,9 +65,20 @@ export async function renderImportExport(host) {
   host.appendChild(section({
     title: "Стоп-лист",
     hint: "Два формата на выбор. 1) Таблица: колонки donor_url + target_url (либо target_domain), опционально result_url, comment. 2) Матрица: в верхней строке — целевые домены (бренды), в каждом столбце под ними — доноры этого бренда. Домены-доноры блокируются для всего бренда.",
-    importFn: (file) => api.importStopList(file),
+    selectFields: [{
+      name: "stoplist_client",
+      label: "Для кого этот стоп-лист?",
+      value: "",
+      options: [
+        { value: "", label: "Наш стоп-лист (внутренний)" },
+        ...clients.map(c => ({ value: String(c.id), label: `Клиент: ${c.name}` })),
+      ],
+    }],
+    importFn: (file, extra) => api.importStopList(file, extra.stoplist_client || null),
     exportFn: () => api.exportStopList(),
   }));
+  host.appendChild(callout("info",
+    "Стоп-листы изолированы: клиентский план подбирает доноров только по стоп-листу своего клиента, наш — только по нашему. Разные клиенты друг на друга не влияют. Общая — только база доноров."));
 
   // Reset all data — Super-Admin only. Wipes operational data so the
   // dashboard goes back to zero, without a manual SQL trip.

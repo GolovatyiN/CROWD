@@ -575,7 +575,13 @@ def _stoplist_is_long(df: pd.DataFrame) -> bool:
     return "donor_url" in df.columns and ("target_url" in df.columns or "target_domain" in df.columns)
 
 
-def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Optional[int]) -> dict:
+def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Optional[int],
+                     client_id: Optional[int] = None) -> dict:
+    # Contour: a client_id makes every imported row belong to THAT client's
+    # stop-list (kind='client', isolated in the matcher); otherwise it's our
+    # internal stop-list. Donor base stays shared regardless.
+    entry_kind = "client" if client_id else "internal"
+    entry_level = "client" if client_id else "internal"
     # Detect the layout. A classic 'long' file has recognisable headers
     # (donor_url + target_url/target_domain); anything else is treated as the
     # 'matrix' layout (brand domains across the top row, donors listed below).
@@ -639,6 +645,9 @@ def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Opt
             placed_by=user_id,
             source_anchor_plan="(импортировано)",
             source="import",
+            kind=entry_kind,
+            client_id=client_id,
+            level=entry_level,
         )
         db.add(entry)
         inserted += 1
