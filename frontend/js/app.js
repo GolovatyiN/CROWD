@@ -19,7 +19,6 @@ import { renderClients, renderClientDetail } from "./pages/clients.js";
 import { renderClientDashboard, renderClientProject } from "./pages/client_cabinet.js";
 import { renderLinkMonitor } from "./pages/link_monitor.js";
 import { renderNotifications } from "./pages/notifications.js";
-import { renderAllocation } from "./pages/allocation.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
@@ -31,7 +30,6 @@ const NAV = [
   // Клиенты и планы
   { hash: "#/clients", title: "Клиенты", icon: "users", roles: ["admin", "super_admin"], group: "campaigns" },
   { hash: "#/plans", title: "Анкор-планы", icon: "plans", roles: ["admin", "super_admin"], group: "campaigns" },
-  { hash: "#/allocation", title: "Распределение", icon: "tasks", roles: ["manager", "admin", "super_admin"], group: "campaigns" },
   { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "campaigns" },
   // Ресурсы
   { hash: "#/donors", title: "Доноры", icon: "donors", roles: ["admin", "super_admin"], group: "resources" },
@@ -67,7 +65,6 @@ const ROUTES = [
   { pattern: /^#\/audit$/, render: renderAudit, roles: ["super_admin"] },
   { pattern: /^#\/link-monitor$/, render: renderLinkMonitor, roles: ["teamlead", "manager", "admin", "super_admin"] },
   { pattern: /^#\/notifications$/, render: renderNotifications, roles: ["teamlead", "manager", "admin", "super_admin"] },
-  { pattern: /^#\/allocation$/, render: renderAllocation, roles: ["manager", "admin", "super_admin"] },
   { pattern: /^#\/import-export$/, render: renderImportExport, roles: ["admin", "super_admin"] },
 ];
 
