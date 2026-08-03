@@ -144,7 +144,6 @@ export async function renderClientDetail(host, clientId) {
   const table = el("table");
   table.appendChild(el("thead", {}, el("tr", {},
     el("th", { class: "left" }, "Проект"),
-    el("th", {}, "GEO / язык"),
     el("th", { class: "right" }, "План"),
     el("th", { class: "right" }, "Готово / всего"),
     el("th", {}, "Статус"),
@@ -163,7 +162,6 @@ function projectRow(p, clientId, users, isAdmin) {
       el("div", { style: { fontWeight: 500 } }, p.name),
       p.promoted_domain && el("div", { class: "mono", style: { fontSize: "11.5px", color: "var(--text-3)" } }, p.promoted_domain),
     ),
-    el("td", { class: "muted", style: { fontSize: "12px" } }, `${p.geo || "—"} / ${p.language || "—"}`),
     el("td", { class: "right tabular mono" }, String(p.planned_count || 0)),
     el("td", { class: "right tabular mono" }, `${p.completed_rows || 0} / ${p.total_rows || 0}`),
     el("td", {}, statusChip(PROJECT_STATUS, p.status)),
@@ -184,9 +182,6 @@ function projectRow(p, clientId, users, isAdmin) {
 function projectModal(clientId, project, users, onDone) {
   const f = {
     name: el("input", { type: "text", value: project?.name || "", placeholder: "Название проекта" }),
-    promoted_domain: el("input", { type: "text", value: project?.promoted_domain || "", placeholder: "example.com" }),
-    geo: el("input", { type: "text", value: project?.geo || "", placeholder: "US" }),
-    language: el("input", { type: "text", value: project?.language || "", placeholder: "en" }),
     planned_count: el("input", { type: "number", value: project?.planned_count || 0, min: "0" }),
     donor_requirements: el("textarea", { rows: 2, placeholder: "Требования к донорам" }, project?.donor_requirements || ""),
     status: el("select", {}, ...Object.entries(PROJECT_STATUS).map(([v, l]) => el("option", { value: v, selected: (project?.status || "active") === v }, l))),
@@ -204,13 +199,10 @@ function projectModal(clientId, project, users, onDone) {
   );
   const content = el("div", {},
     el("div", { class: "field" }, el("label", {}, "Название"), f.name),
+    el("div", { class: "muted", style: { fontSize: "12px", margin: "-4px 0 12px", lineHeight: 1.45 } },
+      "Продвигаемые домены, целевые URL, GEO и язык задаются в самом анкор-плане — по строке на каждую цель. У клиента может быть несколько доменов с разными гео в одном проекте."),
     el("div", { class: "row", style: { gap: "8px" } },
-      el("div", { class: "field", style: { flex: 2 } }, el("label", {}, "Продвигаемый домен"), f.promoted_domain),
-      el("div", { class: "field", style: { flex: 1 } }, el("label", {}, "GEO"), f.geo),
-      el("div", { class: "field", style: { flex: 1 } }, el("label", {}, "Язык"), f.language),
-    ),
-    el("div", { class: "row", style: { gap: "8px" } },
-      el("div", { class: "field", style: { flex: 1 } }, el("label", {}, "План размещений"), f.planned_count),
+      el("div", { class: "field", style: { flex: 1 } }, el("label", {}, "План размещений (ориентир)"), f.planned_count),
       el("div", { class: "field", style: { flex: 1 } }, el("label", {}, "Статус"), f.status),
     ),
     el("div", { class: "field" }, el("label", {}, "Требования к донорам"), f.donor_requirements),
@@ -221,8 +213,8 @@ function projectModal(clientId, project, users, onDone) {
     submitButton(project ? "Сохранить" : "Создать", async () => {
       if (!f.name.value.trim()) { toast("Введите название", "error"); return; }
       const data = {
-        name: f.name.value.trim(), promoted_domain: f.promoted_domain.value, geo: f.geo.value,
-        language: f.language.value, planned_count: parseInt(f.planned_count.value) || 0,
+        name: f.name.value.trim(),
+        planned_count: parseInt(f.planned_count.value) || 0,
         donor_requirements: f.donor_requirements.value, status: f.status.value,
         member_ids: [...selected],
       };
