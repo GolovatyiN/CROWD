@@ -22,12 +22,13 @@ import time
 from typing import Iterable, Optional, Sequence
 from urllib.parse import urlparse
 
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, false, or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
 from ..models import (
     AnchorPlanItem,
+    ClientProject,
     Donor,
     DonorAccount,
     Placement,
@@ -135,8 +136,42 @@ def quality_score(donor: Donor) -> float:
 
 # ---------- core ----------
 
-def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: str = "") -> set[str]:
-    """donor_urls forbidden for THIS anchor (target_url + anchor_text).
+# --- contour isolation (наш / клиент) ---
+# Stop-lists do NOT cross contours: an internal plan matches donors only against
+# the internal stop-list + internal placements; a client plan only against ITS
+# OWN client's stop-list + placements (per-client, shared across that client's
+# projects). The donor base stays shared. Internal contour == rows with no
+# client_id; client contour == rows with client_id == this client's id.
+
+def resolve_contour(db: Session, kind: str, client_project_id) -> tuple[str, int | None]:
+    """('internal', None) for our projects; ('client', client_id) for a client
+    project (resolved from the project). Unknown/broken client → ('client', None)
+    which blocks nothing rather than leaking the internal stop-list."""
+    if (kind or "internal") == "client" and client_project_id:
+        cp = db.get(ClientProject, client_project_id)
+        if cp:
+            return "client", cp.client_id
+        return "client", None
+    return "internal", None
+
+
+def _stoplist_contour_clause(contour: tuple[str, int | None]):
+    kind, cid = contour
+    if kind == "client":
+        return StopListEntry.client_id == cid if cid is not None else false()
+    return StopListEntry.client_id.is_(None)
+
+
+def _placement_contour_clause(contour: tuple[str, int | None]):
+    kind, cid = contour
+    if kind == "client":
+        return Placement.client_id == cid if cid is not None else false()
+    return Placement.client_id.is_(None)
+
+
+def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: str, contour: tuple[str, int | None]) -> set[str]:
+    """donor_urls forbidden for THIS anchor (target_url + anchor_text), within
+    the item's contour only.
 
     A donor is blocked only within the same anchor: if it was already used
     for (target_url, anchor_text) it can't be reused for that anchor, but it
@@ -150,6 +185,7 @@ def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: st
             and_(
                 StopListEntry.target_url == target_url,
                 StopListEntry.anchor_text == (anchor_text or ""),
+                _stoplist_contour_clause(contour),
             )
         )
     ).all()
@@ -160,6 +196,7 @@ def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: st
                 Placement.target_url == target_url,
                 Placement.anchor_text == (anchor_text or ""),
                 Placement.status.in_(["placed", "done"]),
+                _placement_contour_clause(contour),
             )
         )
     ).all()
@@ -167,8 +204,8 @@ def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: st
     return out
 
 
-def _domain_level_blocks(db: Session, target_domains: set[str]) -> dict[str, set[str]]:
-    """target_domain -> set of blocked donor DOMAINS.
+def _domain_level_blocks(db: Session, target_domains: set[str], contour: tuple[str, int | None]) -> dict[str, set[str]]:
+    """target_domain -> set of blocked donor DOMAINS (within the given contour).
 
     "Domain-level" (a.k.a. brand-level) stop entries are those whose target_url
     is a bare domain (no scheme). They come from the imported brand stop-list —
@@ -187,6 +224,7 @@ def _domain_level_blocks(db: Session, target_domains: set[str]) -> dict[str, set
                 and_(
                     StopListEntry.target_domain.in_(chunk),
                     ~StopListEntry.target_url.like("%://%"),
+                    _stoplist_contour_clause(contour),
                 )
             )
         ).all()
@@ -203,9 +241,10 @@ def blocked_for_item(db: Session, item: AnchorPlanItem) -> tuple[set[str], set[s
     - donor_urls: exact urls forbidden for this ANCHOR (target_url + anchor_text).
     - donor domains: forbidden across the whole target brand (domain-level entries).
     """
-    urls = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
+    contour = resolve_contour(db, getattr(item, "kind", "internal"), getattr(item, "client_project_id", None))
+    urls = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "", contour)
     tdom = (getattr(item, "target_domain", "") or extract_domain(item.target_url or "")).lower()
-    domains = _domain_level_blocks(db, {tdom}).get(tdom, set()) if tdom else set()
+    domains = _domain_level_blocks(db, {tdom}, contour).get(tdom, set()) if tdom else set()
     return urls, domains
 
 
@@ -320,12 +359,15 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
     # A donor is blocked only within the same anchor, so the key includes the
     # anchor text — the same donor stays free for other anchors of the same
     # target_url.
+    # Contour of this plan (наш / клиент) — a plan is uniform, so resolve once.
+    # All stop-list / placement blocking below is confined to this contour.
+    contour = resolve_contour(db, getattr(items[0], "kind", "internal"), getattr(items[0], "client_project_id", None))
     target_urls = {it.target_url for it in items if it.target_url}
     blocked_by_anchor: dict[tuple, set[str]] = {}
     if target_urls:
         for tu, at, du in db.execute(
             select(StopListEntry.target_url, StopListEntry.anchor_text, StopListEntry.donor_url)
-            .where(StopListEntry.target_url.in_(target_urls))
+            .where(and_(StopListEntry.target_url.in_(target_urls), _stoplist_contour_clause(contour)))
         ).all():
             blocked_by_anchor.setdefault((tu, at or ""), set()).add(du)
         for tu, at, du in db.execute(
@@ -333,6 +375,7 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
             .where(
                 Placement.target_url.in_(target_urls),
                 Placement.status.in_(["placed", "done"]),
+                _placement_contour_clause(contour),
             )
         ).all():
             blocked_by_anchor.setdefault((tu, at or ""), set()).add(du)
@@ -344,7 +387,7 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         (it.target_domain or extract_domain(it.target_url or "")).lower()
         for it in items if (it.target_domain or it.target_url)
     }
-    domain_blocks_by_tdom = _domain_level_blocks(db, target_domains)
+    domain_blocks_by_tdom = _domain_level_blocks(db, target_domains, contour)
 
     # ---- per-item pick ----
     matched = 0
