@@ -307,6 +307,95 @@ class StopListOut(ORMModel):
     kind: str = "internal"
 
 
+# ---------- Clients & client projects ----------
+
+class ClientBase(BaseModel):
+    name: str
+    contact_info: str = ""
+    status: str = "active"
+    comment: str = ""
+    manager_id: Optional[int] = None
+
+
+class ClientCreate(ClientBase):
+    pass
+
+
+class ClientUpdate(BaseModel):
+    name: Optional[str] = None
+    contact_info: Optional[str] = None
+    status: Optional[str] = None
+    comment: Optional[str] = None
+    manager_id: Optional[int] = None
+
+
+class ClientOut(ORMModel):
+    id: int
+    name: str
+    contact_info: str
+    status: str
+    comment: str
+    manager_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+    projects_count: int = 0
+    placements_total: int = 0
+    placements_done: int = 0
+
+
+class ClientProjectBase(BaseModel):
+    client_id: int
+    name: str
+    promoted_domain: str = ""
+    geo: str = ""
+    language: str = ""
+    donor_requirements: str = ""
+    planned_count: int = 0
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+    status: str = "active"
+    manager_id: Optional[int] = None
+
+
+class ClientProjectCreate(ClientProjectBase):
+    pass
+
+
+class ClientProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    promoted_domain: Optional[str] = None
+    geo: Optional[str] = None
+    language: Optional[str] = None
+    donor_requirements: Optional[str] = None
+    planned_count: Optional[int] = None
+    period_start: Optional[datetime] = None
+    period_end: Optional[datetime] = None
+    status: Optional[str] = None
+    manager_id: Optional[int] = None
+    member_ids: Optional[List[int]] = None
+
+
+class ClientProjectOut(ORMModel):
+    id: int
+    client_id: int
+    name: str
+    promoted_domain: str
+    geo: str
+    language: str
+    donor_requirements: str
+    planned_count: int
+    period_start: Optional[datetime]
+    period_end: Optional[datetime]
+    status: str
+    manager_id: Optional[int]
+    created_at: datetime
+    updated_at: datetime
+    total_rows: int = 0
+    completed_rows: int = 0
+    problem_rows: int = 0
+    member_ids: List[int] = []
+
+
 # ---------- Import ----------
 
 class ImportPreview(BaseModel):

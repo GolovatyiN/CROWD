@@ -15,6 +15,7 @@ import { renderUsers } from "./pages/users.js";
 import { renderImportExport } from "./pages/import_export.js";
 import { renderAudit } from "./pages/audit.js";
 import { renderEmailAccounts } from "./pages/email_accounts.js";
+import { renderClients, renderClientDetail } from "./pages/clients.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
@@ -22,6 +23,7 @@ const NAV = [
   { hash: "#/my-tasks", title: "Мои задачи", icon: "tasks", roles: ["user", "admin", "super_admin"], group: "main" },
   { hash: "#/plans", title: "Анкор-планы", icon: "plans", roles: ["admin", "super_admin"], group: "data" },
   { hash: "#/donors", title: "Доноры", icon: "donors", roles: ["admin", "super_admin"], group: "data" },
+  { hash: "#/clients", title: "Клиенты", icon: "users", roles: ["admin", "super_admin"], group: "data" },
   { hash: "#/stop-list", title: "Стоп-лист", icon: "stop", roles: ["user", "admin", "super_admin"], group: "data" },
   { hash: "#/email-accounts", title: "Аккаунты", icon: "user", roles: ["user", "admin", "super_admin"], group: "data" },
   { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "admin" },
@@ -41,6 +43,8 @@ const ROUTES = [
   { pattern: /^#\/donors$/, render: renderDonors, roles: ["admin", "super_admin"] },
   { pattern: /^#\/plans$/, render: renderPlans, roles: ["admin", "super_admin"] },
   { pattern: /^#\/plans\/(\d+)$/, render: (host, m) => renderPlanDetails(host, parseInt(m[1])), roles: ["admin", "super_admin"] },
+  { pattern: /^#\/clients$/, render: renderClients, roles: ["admin", "super_admin"] },
+  { pattern: /^#\/clients\/(\d+)$/, render: (host, m) => renderClientDetail(host, parseInt(m[1])), roles: ["admin", "super_admin"] },
   { pattern: /^#\/my-tasks$/, render: renderMyTasks, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/stop-list$/, render: renderStopList, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/email-accounts$/, render: renderEmailAccounts, roles: ["user", "admin", "super_admin"] },

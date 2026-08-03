@@ -10,6 +10,7 @@ from ..utils import iso_utc
 from ..models import (
     AnchorPlan,
     AnchorPlanItem,
+    ClientProject,
     Donor,
     DonorAccount,
     Placement,
@@ -42,6 +43,7 @@ def _ensure_placement_for_item(db: Session, item: AnchorPlanItem, user: User) ->
     if placement:
         return placement
     donor = db.get(Donor, item.selected_donor_id) if item.selected_donor_id else None
+    cp = db.get(ClientProject, item.client_project_id) if getattr(item, "client_project_id", None) else None
     placement = Placement(
         anchor_plan_item_id=item.id,
         target_url=item.target_url,
@@ -51,6 +53,8 @@ def _ensure_placement_for_item(db: Session, item: AnchorPlanItem, user: User) ->
         anchor_text=item.anchor_text,
         employee_id=item.assigned_to or user.id,
         kind=getattr(item, "kind", "internal") or "internal",
+        client_project_id=getattr(item, "client_project_id", None),
+        client_id=cp.client_id if cp else None,
         status="in_progress",
     )
     db.add(placement)

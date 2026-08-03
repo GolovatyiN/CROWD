@@ -82,6 +82,8 @@ class AnchorPlan(Base):
     # internal | client — 'internal' = наши проекты, 'client' = для внешних клиентов.
     # Denormalised onto items/placements/stop-list (inherited from the plan).
     kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)
+    # Set for client plans (kind='client'); NULL for internal plans.
+    client_project_id: Mapped[int | None] = mapped_column(ForeignKey("client_projects.id", ondelete="SET NULL"), nullable=True, index=True)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
 
@@ -104,6 +106,7 @@ class AnchorPlanItem(Base):
     selected_donor_id: Mapped[int | None] = mapped_column(ForeignKey("donors.id"), nullable=True, index=True)
     status: Mapped[str] = mapped_column(String(32), default="new", index=True)
     kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # inherited from plan
+    client_project_id: Mapped[int | None] = mapped_column(ForeignKey("client_projects.id", ondelete="SET NULL"), nullable=True, index=True)  # inherited from plan
     result_url: Mapped[str] = mapped_column(String(1024), default="")
     comment: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
@@ -134,6 +137,10 @@ class Placement(Base):
     result_url: Mapped[str] = mapped_column(String(1024), default="")
     status: Mapped[str] = mapped_column(String(32), default="in_progress", index=True)
     kind: Mapped[str] = mapped_column(String(16), default="internal", server_default="internal", nullable=False, index=True)  # inherited from item/plan
+    # Denormalised client links (NULL for internal) — client portal isolation
+    # filters directly on client_id, so it must live on the placement itself.
+    client_id: Mapped[int | None] = mapped_column(ForeignKey("clients.id", ondelete="SET NULL"), nullable=True, index=True)
+    client_project_id: Mapped[int | None] = mapped_column(ForeignKey("client_projects.id", ondelete="SET NULL"), nullable=True, index=True)
     login_email: Mapped[str] = mapped_column(String(255), default="")
     login_password: Mapped[str] = mapped_column(String(255), default="")
     account_username: Mapped[str] = mapped_column(String(255), default="")
@@ -207,6 +214,61 @@ class EmailAccount(Base):
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class Client(Base):
+    """External customer we sell placements to. Client projects (kind='client')
+    hang off this; internal work has no client."""
+    __tablename__ = "clients"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    contact_info: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    comment: Mapped[str] = mapped_column(Text, default="")
+    manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    projects: Mapped[list["ClientProject"]] = relationship(back_populates="client", cascade="all, delete-orphan")
+
+
+class ClientProject(Base):
+    __tablename__ = "client_projects"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_id: Mapped[int] = mapped_column(ForeignKey("clients.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    promoted_domain: Mapped[str] = mapped_column(String(255), default="")
+    geo: Mapped[str] = mapped_column(String(64), default="")
+    language: Mapped[str] = mapped_column(String(64), default="")
+    donor_requirements: Mapped[str] = mapped_column(Text, default="")
+    planned_count: Mapped[int] = mapped_column(Integer, default=0)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    manager_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    client: Mapped[Client] = relationship(back_populates="projects")
+    members: Mapped[list["ClientProjectMember"]] = relationship(back_populates="project", cascade="all, delete-orphan")
+
+
+class ClientProjectMember(Base):
+    """M:N — сотрудники, назначенные на клиентский проект."""
+    __tablename__ = "client_project_members"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_project_id: Mapped[int] = mapped_column(ForeignKey("client_projects.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+    project: Mapped[ClientProject] = relationship(back_populates="members")
+
+    __table_args__ = (
+        UniqueConstraint("client_project_id", "user_id", name="uq_project_member"),
+    )
 
 
 class AuditLog(Base):

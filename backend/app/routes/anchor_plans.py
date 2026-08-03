@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import get_current_user, require_admin
 from ..database import get_db
-from ..models import AnchorPlan, AnchorPlanItem, Donor, Placement, StopListEntry, User
+from ..models import AnchorPlan, AnchorPlanItem, ClientProject, Donor, Placement, StopListEntry, User
 from ..schemas import (
     AnchorPlanItemOut,
     AnchorPlanItemUpdate,
@@ -292,19 +292,29 @@ def update_item(
 async def import_plan(
     file: UploadFile = File(...),
     plan_name: str = Form(""),
+    client_project_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(require_admin),
 ):
+    # A plan tied to a client project is a 'client' plan; otherwise 'internal'.
+    kind = "internal"
+    if client_project_id:
+        if not db.get(ClientProject, client_project_id):
+            raise HTTPException(status_code=400, detail="Клиентский проект не найден")
+        kind = "client"
     content = await file.read()
     try:
-        result = import_anchor_plan(db, content, file.filename or "plan", plan_name, user.id)
+        result = import_anchor_plan(
+            db, content, file.filename or "plan", plan_name, user.id,
+            kind=kind, client_project_id=client_project_id,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     audit.log(
         db, user, "plan.import",
         target_id=getattr(result, "plan_id", None),
         target_label=plan_name or file.filename or "план",
-        строк=getattr(result, "rows_inserted", 0),
+        kind=kind, строк=getattr(result, "rows_inserted", 0),
     )
     db.commit()
     return result

@@ -112,7 +112,10 @@ export const api = {
   deletePlan: (id) => request(`/anchor-plans/${id}`, { method: "DELETE" }),
   planItems: (id, params = {}) => request(`/anchor-plans/${id}/items?${qs(params)}`),
   updateItem: (id, data) => request(`/anchor-plans/items/${id}`, { method: "PATCH", body: data }),
-  importPlan: (file, planName) => uploadFile("/anchor-plans/import", file, { plan_name: planName }),
+  importPlan: (file, planName, clientProjectId) => uploadFile("/anchor-plans/import", file, {
+    plan_name: planName,
+    ...(clientProjectId ? { client_project_id: clientProjectId } : {}),
+  }),
   autoMatch: (id) => request(`/anchor-plans/${id}/auto-match`, { method: "POST" }),
   rematchAll: (id) => request(`/anchor-plans/${id}/rematch-all`, { method: "POST" }),
   reinferGeo: (id) => request(`/anchor-plans/${id}/reinfer-geo`, { method: "POST" }),
@@ -134,6 +137,18 @@ export const api = {
   importStopList: (file) => uploadFile("/stop-list/import", file),
   exportStopList: () => downloadFile("/stop-list/export", "stop_list.csv"),
   deleteStopEntry: (id) => request(`/stop-list/${id}`, { method: "DELETE" }),
+
+  // clients & client projects
+  clients: (params = {}) => request(`/clients?${qs(params)}`),
+  client: (id) => request(`/clients/${id}`),
+  createClient: (data) => request("/clients", { method: "POST", body: data }),
+  updateClient: (id, data) => request(`/clients/${id}`, { method: "PATCH", body: data }),
+  archiveClient: (id) => request(`/clients/${id}`, { method: "DELETE" }),
+  clientProjects: (params = {}) => request(`/client-projects?${qs(params)}`),
+  clientProject: (id) => request(`/client-projects/${id}`),
+  createClientProject: (data) => request("/client-projects", { method: "POST", body: data }),
+  updateClientProject: (id, data) => request(`/client-projects/${id}`, { method: "PATCH", body: data }),
+  archiveClientProject: (id) => request(`/client-projects/${id}`, { method: "DELETE" }),
 
   // dashboard
   stats: () => request("/dashboard/stats"),

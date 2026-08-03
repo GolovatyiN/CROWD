@@ -19,11 +19,25 @@ export async function renderImportExport(host) {
     exportFn: () => api.exportDonors(),
   }));
 
+  // Client projects for the "import as client plan" selector. Preselect comes
+  // from a project's "Импортировать план" action (via sessionStorage).
+  const clientProjects = await api.clientProjects().catch(() => []);
+  const preselectProject = sessionStorage.getItem("import_client_project") || "";
+  sessionStorage.removeItem("import_client_project");
   host.appendChild(section({
     title: "Анкор-план",
-    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, geo, language, required_link_type, requirements.",
+    hint: "Обязательно: target_url (или url/page) либо target_domain. Опционально: anchor_text, geo, language, required_link_type, requirements. Выберите клиентский проект, чтобы загрузить план как клиентский.",
     extraFields: [{ name: "plan_name", label: "Название плана", placeholder: "по умолчанию — имя файла" }],
-    importFn: async (file, extra) => api.importPlan(file, extra.plan_name || ""),
+    selectFields: [{
+      name: "client_project",
+      label: "Клиентский проект",
+      value: preselectProject,
+      options: [
+        { value: "", label: "— Наш план (internal) —" },
+        ...clientProjects.map(p => ({ value: String(p.id), label: p.name })),
+      ],
+    }],
+    importFn: async (file, extra) => api.importPlan(file, extra.plan_name || "", extra.client_project || null),
   }));
 
   host.appendChild(section({
@@ -92,7 +106,7 @@ function openResetModal() {
   setTimeout(() => input.focus(), 50);
 }
 
-function section({ title, hint, importFn, exportFn, extraFields = [] }) {
+function section({ title, hint, importFn, exportFn, extraFields = [], selectFields = [] }) {
   const wrap = el("div", { class: "panel" });
   wrap.appendChild(el("div", { class: "panel-header" },
     el("div", { class: "panel-title" }, title),
@@ -140,9 +154,9 @@ function section({ title, hint, importFn, exportFn, extraFields = [] }) {
 
   wrap.appendChild(dz);
 
-  // Extra fields
+  // Extra fields (text inputs + optional <select> fields). Both feed `extras`.
   const extraInputs = {};
-  if (extraFields.length) {
+  if (extraFields.length || selectFields.length) {
     const row = el("div", { class: "row", style: { marginTop: "12px" } });
     extraFields.forEach(f => {
       const input = el("input", { type: "text", name: f.name, placeholder: f.placeholder || "" });
@@ -150,6 +164,15 @@ function section({ title, hint, importFn, exportFn, extraFields = [] }) {
       row.appendChild(el("div", { class: "field", style: { flex: 1, marginBottom: 0 } },
         el("label", {}, f.label),
         input,
+      ));
+    });
+    selectFields.forEach(f => {
+      const sel = el("select", { name: f.name },
+        ...(f.options || []).map(o => el("option", { value: o.value, selected: String(o.value) === String(f.value ?? "") }, o.label)));
+      extraInputs[f.name] = sel;
+      row.appendChild(el("div", { class: "field", style: { flex: 1, marginBottom: 0 } },
+        el("label", {}, f.label),
+        sel,
       ));
     });
     wrap.appendChild(row);
