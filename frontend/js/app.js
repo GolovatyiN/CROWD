@@ -16,6 +16,7 @@ import { renderImportExport } from "./pages/import_export.js";
 import { renderAudit } from "./pages/audit.js";
 import { renderEmailAccounts } from "./pages/email_accounts.js";
 import { renderClients, renderClientDetail } from "./pages/clients.js";
+import { renderClientDashboard, renderClientProject } from "./pages/client_cabinet.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
@@ -29,9 +30,11 @@ const NAV = [
   { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "admin" },
   { hash: "#/users", title: "Сотрудники", icon: "users", roles: ["super_admin"], group: "admin" },
   { hash: "#/audit", title: "Журнал действий", icon: "file", roles: ["super_admin"], group: "admin" },
+  // Client cabinet — only role 'client' sees this (and nothing else).
+  { hash: "#/client/projects", title: "Мои проекты", icon: "plans", roles: ["client"], group: "client" },
 ];
 
-const GROUP_LABELS = { main: "Работа", data: "Данные", admin: "Администрирование" };
+const GROUP_LABELS = { main: "Работа", data: "Данные", admin: "Администрирование", client: "Кабинет" };
 
 function canSee(item, user) {
   return item.roles.includes(user.role);
@@ -45,6 +48,8 @@ const ROUTES = [
   { pattern: /^#\/plans\/(\d+)$/, render: (host, m) => renderPlanDetails(host, parseInt(m[1])), roles: ["admin", "super_admin"] },
   { pattern: /^#\/clients$/, render: renderClients, roles: ["admin", "super_admin"] },
   { pattern: /^#\/clients\/(\d+)$/, render: (host, m) => renderClientDetail(host, parseInt(m[1])), roles: ["admin", "super_admin"] },
+  { pattern: /^#\/client\/projects$/, render: renderClientDashboard, roles: ["client"] },
+  { pattern: /^#\/client\/projects\/(\d+)$/, render: (host, m) => renderClientProject(host, parseInt(m[1])), roles: ["client"] },
   { pattern: /^#\/my-tasks$/, render: renderMyTasks, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/stop-list$/, render: renderStopList, roles: ["user", "admin", "super_admin"] },
   { pattern: /^#\/email-accounts$/, render: renderEmailAccounts, roles: ["user", "admin", "super_admin"] },
@@ -173,6 +178,11 @@ async function route() {
   // A 'user' landing on / should go straight to My Tasks (their main view).
   if (me && me.role === "user" && (location.hash === "#/dashboard" || location.hash === "#/")) {
     location.hash = "#/my-tasks";
+    return;
+  }
+  // A client lands in their cabinet, never on internal pages.
+  if (me && me.role === "client" && (location.hash === "#/dashboard" || location.hash === "#/" || location.hash === "#/my-tasks")) {
+    location.hash = "#/client/projects";
     return;
   }
   let matched = false;

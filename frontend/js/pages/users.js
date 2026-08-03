@@ -4,7 +4,7 @@ import { icon } from "../components/icons.js";
 import { openModal, closeModal } from "../components/modal.js";
 import { toast } from "../components/toast.js";
 
-const ROLES = ["user", "admin", "super_admin"];
+const ROLES = ["user", "teamlead", "manager", "admin", "super_admin", "client"];
 
 export async function renderUsers(host) {
   const state = { q: "", role: "", is_active: "", sort: "id", order: "asc" };
@@ -112,8 +112,9 @@ function roleVariant(role) {
   return "";
 }
 
-function openUserForm(user, reload) {
+async function openUserForm(user, reload) {
   const isEdit = !!user;
+  const clients = await api.clients().catch(() => []);
   const form = el("form", {});
   form.appendChild(el("div", { class: "field" }, el("label", {}, "Email"),
     el("input", { name: "email", type: "email", value: user?.email || "", required: true, readonly: isEdit ? "" : null })));
@@ -121,6 +122,11 @@ function openUserForm(user, reload) {
     el("input", { name: "full_name", type: "text", value: user?.full_name || "" })));
   form.appendChild(el("div", { class: "field" }, el("label", {}, "Роль"),
     selectInput(user?.role || "user", ROLES, () => {}, "user", ROLE_LABELS, "role")));
+  // Client selector — used only when role='client' (backend ignores it otherwise).
+  const clientLabels = { "": "— (только для роли «Клиент»)" };
+  clients.forEach(c => (clientLabels[c.id] = c.name));
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Клиент"),
+    selectInput(user?.client_id || "", ["", ...clients.map(c => c.id)], () => {}, "— (только для роли «Клиент»)", clientLabels, "client_id")));
   form.appendChild(el("div", { class: "field" }, el("label", {}, isEdit ? "Новый пароль (не обязательно)" : "Пароль *"),
     el("input", { name: "password", type: "password", required: isEdit ? null : "" })));
   if (isEdit) {

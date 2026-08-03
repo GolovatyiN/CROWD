@@ -150,6 +150,12 @@ export const api = {
   updateClientProject: (id, data) => request(`/client-projects/${id}`, { method: "PATCH", body: data }),
   archiveClientProject: (id) => request(`/client-projects/${id}`, { method: "DELETE" }),
 
+  // client portal (role=client) — hard-scoped server-side to the caller's client
+  clientSummary: () => request("/client/summary"),
+  clientMyProjects: () => request("/client/projects"),
+  clientMyProject: (id) => request(`/client/projects/${id}`),
+  clientMyProjectPlacements: (id) => request(`/client/projects/${id}/placements`),
+
   // dashboard
   stats: () => request("/dashboard/stats"),
 

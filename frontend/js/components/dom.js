@@ -52,8 +52,11 @@ const STATUS_CLASS = {
 export const ROLE_LABELS = {
   super_admin: "Super Admin",
   admin: "Админ",
+  manager: "Менеджер",
+  teamlead: "Тимлид",
   user: "Сотрудник",
   employee: "Сотрудник", // legacy fallback for any rows that escape the migration
+  client: "Клиент",
 };
 
 export function statusPill(status) {
