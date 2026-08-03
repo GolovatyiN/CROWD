@@ -40,9 +40,10 @@ def upgrade() -> None:
     op.create_index(op.f("ix_stop_list_entries_level"), "stop_list_entries", ["level"], unique=False)
     op.create_index(op.f("ix_stop_list_entries_status"), "stop_list_entries", ["status"], unique=False)
 
-    # Back-fill: level from kind; legacy rows are historical.
-    op.execute("UPDATE stop_list_entries SET level = kind WHERE level = 'internal'")
-    op.execute("UPDATE stop_list_entries SET source = 'historical'")
+    # Back-fill in a single pass over the (large) table: level from kind, and
+    # mark all pre-existing rows as historical. One UPDATE instead of two keeps
+    # dead-tuple churn / WAL down on a table with hundreds of thousands of rows.
+    op.execute("UPDATE stop_list_entries SET level = kind, source = 'historical'")
 
     # NOTE: deliberately NO database-level foreign keys on client_id /
     # client_project_id. `ALTER TABLE ADD CONSTRAINT ... FOREIGN KEY` takes an
