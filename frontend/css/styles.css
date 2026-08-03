@@ -229,17 +229,16 @@ button.cta, .btn.cta {
   box-shadow: var(--shadow-xs);
   transition: color .35s ease, border-color .35s ease, box-shadow .35s ease;
 }
-button.cta::before {                /* the expanding graphite fill */
+button.cta::before {                /* the graphite fill — hidden at rest, grows from the lower-left on hover */
   content: "";
   position: absolute;
   z-index: -1;                      /* above the button bg, below the label/icon */
-  left: 18%; top: 45%;
-  width: 9px; height: 9px;
-  border-radius: 50%;
+  inset: 0;
+  border-radius: 999px;
   background: var(--accent);
-  transition: left .4s cubic-bezier(.4,0,.2,1), top .4s cubic-bezier(.4,0,.2,1),
-              width .4s cubic-bezier(.4,0,.2,1), height .4s cubic-bezier(.4,0,.2,1),
-              border-radius .4s ease, transform .4s ease;
+  transform: scale(0);              /* fully collapsed at rest → no visible dot */
+  transform-origin: 18% 90%;        /* sweeps out from the lower-left corner */
+  transition: transform .4s cubic-bezier(.4, 0, .2, 1);
 }
 button.cta:hover, .btn.cta:hover {
   background: var(--surface-1);     /* keep surface; the ::before does the fill */
@@ -247,12 +246,7 @@ button.cta:hover, .btn.cta:hover {
   border-color: var(--accent);
   box-shadow: var(--shadow-sm);
 }
-button.cta:hover::before {
-  left: 0; top: 0;
-  width: 100%; height: 100%;
-  border-radius: 999px;
-  transform: scale(1.02);
-}
+button.cta:hover::before { transform: scale(1.05); }
 button.cta::after {                 /* arrow that slides in after the label */
   content: "→";
   font-weight: 600;
