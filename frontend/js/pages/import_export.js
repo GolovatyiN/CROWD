@@ -116,7 +116,7 @@ function section({ title, hint, importFn, exportFn, extraFields = [], selectFiel
 
   let pickedFile = null;
   const fileInput = el("input", { type: "file", accept: ".csv,.xlsx,.xls", style: { display: "none" } });
-  const submitBtn = el("button", { type: "button", disabled: "" }, icon("upload", { size: 14 }), el("span", {}, "Загрузить"));
+  const submitBtn = el("button", { class: "cta", type: "button", disabled: "" }, icon("upload", { size: 14 }), el("span", {}, "Загрузить"));
 
   const dz = el("label", { class: "dropzone" },
     icon("upload", { size: 32, stroke: 1.4, className: "file-icon" }),

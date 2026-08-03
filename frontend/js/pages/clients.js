@@ -22,7 +22,7 @@ export async function renderClients(host) {
       el("div", { class: "page-subtitle" }, "Внешние клиенты и их проекты"),
     ),
     el("div", { class: "page-actions" },
-      isAdmin && el("button", { onClick: () => clientModal(null, load) }, icon("plus", { size: 14 }), el("span", {}, "Создать клиента")),
+      isAdmin && el("button", { class: "cta", onClick: () => clientModal(null, load) }, icon("plus", { size: 14 }), el("span", {}, "Создать клиента")),
     ),
   ));
   const wrap = el("div", { class: "table-wrap" });
@@ -38,7 +38,7 @@ export async function renderClients(host) {
     if (!data.length) {
       wrap.appendChild(emptyState({ iconName: "user", title: "Пока нет клиентов",
         desc: "Создайте первого клиента, чтобы вести клиентские проекты.",
-        action: isAdmin && el("button", { onClick: () => clientModal(null, load) }, icon("plus", { size: 14 }), el("span", {}, "Создать клиента")) }));
+        action: isAdmin && el("button", { class: "cta", onClick: () => clientModal(null, load) }, icon("plus", { size: 14 }), el("span", {}, "Создать клиента")) }));
       return;
     }
     const table = el("table");

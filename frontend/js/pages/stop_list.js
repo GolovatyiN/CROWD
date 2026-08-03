@@ -12,7 +12,7 @@ export async function renderStopList(host) {
     ),
     el("div", { class: "page-actions" },
       isAdmin && el("button", { class: "ghost", onClick: () => api.exportStopList() }, icon("download", { size: 14 }), el("span", {}, "Экспорт")),
-      isAdmin && el("button", { onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импорт")),
+      isAdmin && el("button", { class: "cta", onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импорт")),
     ),
   ));
 

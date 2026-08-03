@@ -54,7 +54,7 @@ export async function renderPlanDetails(host, planId) {
         load();
       }));
 
-    headerActions.appendChild(busyButton("", icon("zap", { size: 14 }), "Подобрать доноров",
+    headerActions.appendChild(busyButton("cta", icon("zap", { size: 14 }), "Подобрать доноров",
       "Подбираем…",
       async () => {
         const r = await api.autoMatch(planId);

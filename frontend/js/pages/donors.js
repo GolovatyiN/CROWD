@@ -149,7 +149,7 @@ export async function renderDonors(host) {
         title: "Доноров не найдено",
         desc: state.q || hasFilters(state) ? "Попробуйте изменить фильтры." : "Импортируйте CSV/XLSX или добавьте первого донора.",
         action: isAdmin && !state.q && !hasFilters(state)
-          ? el("button", { onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импортировать"))
+          ? el("button", { class: "cta", onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импортировать"))
           : null,
       }));
       return;

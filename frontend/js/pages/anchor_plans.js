@@ -42,7 +42,7 @@ export async function renderPlans(host) {
       el("div", { class: "page-subtitle" }, "Списки целевых ссылок и анкоров"),
     ),
     el("div", { class: "page-actions" },
-      isAdmin && el("button", { onClick: () => location.hash = "#/import-export" }, icon("plus", { size: 14 }), el("span", {}, "Импортировать план")),
+      isAdmin && el("button", { class: "cta", onClick: () => location.hash = "#/import-export" }, icon("plus", { size: 14 }), el("span", {}, "Импортировать план")),
     ),
   ));
 
@@ -65,7 +65,7 @@ export async function renderPlans(host) {
         iconName: "plans",
         title: "Пока нет анкор-планов",
         desc: "Загрузите свой первый анкор-план в формате CSV или XLSX.",
-        action: isAdmin && el("button", { onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импортировать план")),
+        action: isAdmin && el("button", { class: "cta", onClick: () => location.hash = "#/import-export" }, icon("upload", { size: 14 }), el("span", {}, "Импортировать план")),
       }));
       return;
     }
