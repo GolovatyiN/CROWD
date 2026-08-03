@@ -13,6 +13,8 @@ from ..models import (
     ClientProject,
     Donor,
     DonorAccount,
+    LinkCheck,
+    LinkCheckResult,
     Placement,
     StopListEntry,
     User,
@@ -23,6 +25,7 @@ from ..schemas import (
     MarkProblemRequest,
     PlacementOut,
 )
+from ..services import link_checker
 from ..services.matcher import extract_domain, suggest_account
 from ..services.stop_list_service import register_placement
 
@@ -259,6 +262,9 @@ def mark_placed(
             item.result_url = placement.result_url
 
     register_placement(db, placement)
+    # Queue the just-published ready-link for automatic verification (first check
+    # runs now via the worker / manual recheck; SSRF-safe).
+    link_checker.enqueue_placement(db, placement)
     db.commit()
     db.refresh(placement)
     return PlacementOut.model_validate(placement)
@@ -285,3 +291,49 @@ def mark_problem(
             item.comment = payload.comment
     db.commit()
     return {"ok": True}
+
+
+# ---------- Ready-link verification (Phase 5) ----------
+
+@router.post("/placements/{placement_id}/recheck")
+def recheck_placement(placement_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Run a verification check for this placement's ready-link right now."""
+    placement = db.get(Placement, placement_id)
+    if not placement:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    if not (placement.result_url or "").strip():
+        raise HTTPException(status_code=400, detail="У размещения нет ready link")
+    result = link_checker.check_placement(db, placement)
+    db.commit()
+    return result
+
+
+@router.get("/placements/{placement_id}/checks")
+def placement_checks(placement_id: int, db: Session = Depends(get_db), _: User = Depends(require_staff)):
+    """Current verification state + full check history for a placement."""
+    placement = db.get(Placement, placement_id)
+    if not placement:
+        raise HTTPException(status_code=404, detail="Не найдено")
+    lc = db.query(LinkCheck).filter(LinkCheck.placement_id == placement_id).first()
+    history = (
+        db.query(LinkCheckResult)
+        .filter(LinkCheckResult.placement_id == placement_id)
+        .order_by(LinkCheckResult.checked_at.desc()).limit(50).all()
+    )
+    return {
+        "current": {
+            "status": lc.status, "final_url": lc.final_url, "found_anchor": lc.found_anchor,
+            "http_status": lc.http_status, "is_dofollow": lc.is_dofollow, "error_reason": lc.error_reason,
+            "attempts": lc.attempts, "last_checked_at": iso_utc(lc.last_checked_at),
+            "next_check_at": iso_utc(lc.next_check_at),
+        } if lc else None,
+        "history": [
+            {
+                "checked_at": iso_utc(r.checked_at), "status": r.status, "http_status": r.http_status,
+                "found_anchor": r.found_anchor, "expected_anchor": r.expected_anchor,
+                "found_url": r.found_url, "final_url": r.final_url, "is_dofollow": r.is_dofollow,
+                "redirect_chain": r.redirect_chain, "error_reason": r.error_reason, "duration_ms": r.duration_ms,
+            }
+            for r in history
+        ],
+    }

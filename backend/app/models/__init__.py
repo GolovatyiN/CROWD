@@ -273,6 +273,64 @@ class ClientProjectMember(Base):
     )
 
 
+class LinkCheck(Base):
+    """Current verification state + queue slot for one placement's ready-link.
+
+    One row per placement (unique). The background worker claims due rows
+    (status pending/due AND next_check_at<=now), locks via locked_at, runs a
+    check, then writes a LinkCheckResult and reschedules next_check_at.
+    """
+    __tablename__ = "link_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    placement_id: Mapped[int] = mapped_column(ForeignKey("placements.id", ondelete="CASCADE"), unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    kind: Mapped[str] = mapped_column(String(16), default="internal", index=True)  # internal|client (for filtering)
+    expected_url: Mapped[str] = mapped_column(String(1024), default="")
+    expected_anchor: Mapped[str] = mapped_column(String(512), default="")
+    expected_link_type: Mapped[str] = mapped_column(String(32), default="")
+    final_url: Mapped[str] = mapped_column(String(1024), default="")
+    found_anchor: Mapped[str] = mapped_column(String(512), default="")
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_dofollow: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    error_reason: Mapped[str] = mapped_column(Text, default="")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_check_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True, index=True)
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+    __table_args__ = (
+        Index("ix_link_checks_status_next", "status", "next_check_at"),
+    )
+
+
+class LinkCheckResult(Base):
+    """Append-only history — one row per check run (not just the last result)."""
+    __tablename__ = "link_check_results"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    placement_id: Mapped[int] = mapped_column(ForeignKey("placements.id", ondelete="CASCADE"), index=True)
+    link_check_id: Mapped[int | None] = mapped_column(ForeignKey("link_checks.id", ondelete="CASCADE"), nullable=True, index=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    status: Mapped[str] = mapped_column(String(24), index=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    http_status: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    found_url: Mapped[str] = mapped_column(String(1024), default="")
+    found_anchor: Mapped[str] = mapped_column(String(512), default="")
+    expected_url: Mapped[str] = mapped_column(String(1024), default="")
+    expected_anchor: Mapped[str] = mapped_column(String(512), default="")
+    final_url: Mapped[str] = mapped_column(String(1024), default="")
+    is_dofollow: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    redirect_chain: Mapped[str] = mapped_column(Text, default="")
+    error_reason: Mapped[str] = mapped_column(Text, default="")
+    raw: Mapped[str] = mapped_column(Text, default="")
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+
+
 class AuditLog(Base):
     """Append-only journal of sensitive admin actions.
 
