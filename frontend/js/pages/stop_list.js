@@ -22,37 +22,60 @@ export async function renderStopList(host) {
   ));
 
   const state = {
-    q: "", kind: "", client_id: "", source: "",
+    q: "", kind: "internal", client_id: "", source: "",
     date_from: "", date_to: "", sort: "placed_at", order: "desc",
-    offset: 0, limit: 50,
+    offset: 0, limit: 100,
   };
 
   // Client list for the filter — managers/admins only; ignore if forbidden.
   let clients = [];
   try { clients = await api.clients(); } catch { clients = []; }
 
+  // Prominent «Наш ↔ Клиентский» switch — opens the chosen stop-list contour.
+  const toggleBar = el("div", { class: "row", style: { gap: "12px", alignItems: "center", marginBottom: "14px", flexWrap: "wrap" } });
+  const clientSel = el("select", { onChange: (e) => { state.client_id = e.target.value; refresh(); } },
+    el("option", { value: "" }, "Все клиенты"),
+    ...clients.map(c => el("option", { value: String(c.id) }, c.name)),
+  );
+  function renderToggle() {
+    toggleBar.innerHTML = "";
+    const seg = el("div", { class: "segmented" });
+    [["internal", "Наш стоп-лист"], ["client", "Клиентский"]].forEach(([val, label]) => {
+      seg.appendChild(el("button", {
+        class: `seg${state.kind === val ? " active" : ""}`, type: "button",
+        onClick: () => {
+          if (state.kind === val) return;
+          state.kind = val;
+          if (val === "internal") state.client_id = "";
+          renderToggle();
+          refresh();
+        },
+      }, label));
+    });
+    toggleBar.appendChild(seg);
+    if (state.kind === "client") {
+      clientSel.value = state.client_id || "";
+      toggleBar.appendChild(el("span", { class: "muted", style: { fontSize: "13px" } }, "Клиент:"));
+      toggleBar.appendChild(clientSel);
+      if (!clients.length) toggleBar.appendChild(el("span", { class: "dimmed", style: { fontSize: "12.5px" } }, "клиентов пока нет"));
+    }
+  }
+  renderToggle();
+  host.appendChild(toggleBar);
+
   // ---- search + filter toggle ----
   const sb = el("div", { class: "search-bar" });
   sb.appendChild(searchInput({
     placeholder: "Поиск по домену, ссылке или донору…",
-    onInput: (v) => { state.q = v; state.offset = 0; debounce(load)(); },
+    onInput: (v) => { state.q = v; state.offset = 0; debounce(refresh)(); },
   }));
   const filters = el("div", { class: "filters", style: { display: "none", marginBottom: "12px" } });
   sb.appendChild(el("button", { class: "ghost", onClick: () => filters.style.display = filters.style.display === "none" ? "" : "none" },
     icon("filter", { size: 14 }), el("span", {}, "Фильтры")));
   host.appendChild(sb);
 
-  const applyFilter = () => { state.offset = 0; load(); };
+  const applyFilter = () => { state.offset = 0; refresh(); };
   filters.append(
-    selectField("Стоп-лист", state.kind, [
-      { value: "", label: "Все" },
-      { value: "internal", label: "Наш (внутренний)" },
-      { value: "client", label: "Клиентский" },
-    ], v => { state.kind = v; }),
-    selectField("Клиент", state.client_id, [
-      { value: "", label: "Все клиенты" },
-      ...clients.map(c => ({ value: String(c.id), label: c.name })),
-    ], v => { state.client_id = v; }),
     selectField("Источник", state.source, [
       { value: "", label: "Любой" },
       { value: "auto", label: "Авто (после размещения)" },
@@ -65,10 +88,10 @@ export async function renderStopList(host) {
     field("По", el("input", { type: "date", onInput: (e) => state.date_to = e.target.value })),
     el("button", { onClick: applyFilter }, "Применить"),
     el("button", { class: "ghost", onClick: () => {
-      Object.assign(state, { kind: "", client_id: "", source: "", date_from: "", date_to: "", offset: 0 });
+      Object.assign(state, { source: "", date_from: "", date_to: "", offset: 0 });
       filters.querySelectorAll("input").forEach(i => i.value = "");
       filters.querySelectorAll("select").forEach(s => s.value = "");
-      load();
+      refresh();
     } }, "Сбросить"),
   );
   host.appendChild(filters);
@@ -78,19 +101,36 @@ export async function renderStopList(host) {
   const pager = el("div", { class: "row", style: { justifyContent: "space-between", alignItems: "center", marginTop: "12px" } });
   host.appendChild(pager);
 
+  let loadedItems = [];
+  let total = 0;
   let loadSeq = 0;
-  async function load() {
-    const my = ++loadSeq;
-    wrap.innerHTML = "";
-    wrap.appendChild(tableSkeleton(7, 7));
-    pager.innerHTML = "";
+
+  async function refresh() {         // reset to page 1 (search/filter/sort changed)
+    state.offset = 0;
+    loadedItems = [];
+    await loadPage(true);
+  }
+  async function loadMore() {        // append the next page
+    state.offset = loadedItems.length;
+    await loadPage(false);
+  }
+
+  async function loadPage(first) {
+    const my = first ? ++loadSeq : loadSeq;
+    if (first) {
+      wrap.innerHTML = "";
+      wrap.appendChild(tableSkeleton(7, 7));
+      pager.innerHTML = "";
+    }
     const params = { sort: state.sort, order: state.order, limit: state.limit, offset: state.offset };
     ["q", "kind", "client_id", "source", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
       const data = await api.stopList(params);
-      if (my !== loadSeq) return;
-      renderTable(data.items || []);
-      renderPager(data.total || 0);
+      if (my !== loadSeq) return;    // superseded by a newer search
+      total = data.total || 0;
+      loadedItems = loadedItems.concat(data.items || []);
+      renderRows();
+      renderPagination();
     } catch (e) {
       if (my !== loadSeq) return;
       wrap.innerHTML = "";
@@ -98,24 +138,21 @@ export async function renderStopList(host) {
     }
   }
 
-  function renderPager(total) {
+  function renderPagination() {
     pager.innerHTML = "";
-    if (!total) return;
-    const from = state.offset + 1;
-    const to = Math.min(state.offset + state.limit, total);
+    if (!loadedItems.length) return;
     pager.appendChild(el("span", { class: "muted", style: { fontSize: "13px" } },
-      `Показано ${from.toLocaleString("ru-RU")}–${to.toLocaleString("ru-RU")} из ${total.toLocaleString("ru-RU")}`));
-    pager.appendChild(el("div", { class: "row", style: { gap: "8px" } },
-      el("button", { class: "ghost small", disabled: state.offset <= 0 ? "" : null,
-        onClick: () => { state.offset = Math.max(0, state.offset - state.limit); load(); } }, icon("chevronLeft", { size: 14 }), el("span", {}, "Назад")),
-      el("button", { class: "ghost small", disabled: to >= total ? "" : null,
-        onClick: () => { state.offset += state.limit; load(); } }, el("span", {}, "Вперёд"), icon("chevronRight", { size: 14 })),
-    ));
+      `Загружено ${loadedItems.length.toLocaleString("ru-RU")} из ${total.toLocaleString("ru-RU")}`));
+    if (loadedItems.length < total) {
+      pager.appendChild(el("button", { class: "ghost small", onClick: loadMore }, "Загрузить ещё"));
+    } else {
+      pager.appendChild(el("span", { class: "dimmed" }, "Это весь стоп-лист"));
+    }
   }
 
-  function renderTable(rows) {
+  function renderRows() {
     wrap.innerHTML = "";
-    if (!rows.length) {
+    if (!loadedItems.length) {
       wrap.appendChild(emptyState({
         iconName: "stop",
         title: state.q || hasFilters() ? "Ничего не найдено" : "Стоп-лист пуст",
@@ -127,16 +164,16 @@ export async function renderStopList(host) {
     }
     const table = el("table");
     table.appendChild(el("thead", {}, el("tr", {},
-      sortHeader("Целевой домен", "target_domain", state, load, "left"),
-      sortHeader("Целевая ссылка", "target_url", state, load, "left"),
-      sortHeader("Донор", "donor_url", state, load, "left"),
+      sortHeader("Целевой домен", "target_domain", state, refresh, "left"),
+      sortHeader("Целевая ссылка", "target_url", state, refresh, "left"),
+      sortHeader("Донор", "donor_url", state, refresh, "left"),
       el("th", {}, "Стоп-лист"),
       el("th", {}, "Источник"),
-      sortHeader("Дата", "placed_at", state, load),
+      sortHeader("Дата", "placed_at", state, refresh),
       el("th", { class: "right" }, ""),
     )));
     const tbody = el("tbody");
-    rows.forEach(r => tbody.appendChild(el("tr", {},
+    loadedItems.forEach(r => tbody.appendChild(el("tr", {},
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_domain }, r.target_domain || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_url }, r.target_url || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate", title: r.donor_url }, el("a", { href: ensureUrl(r.donor_url), target: "_blank", rel: "noopener", class: "mono", style: { fontSize: "12px" } }, r.donor_url)),
@@ -149,7 +186,7 @@ export async function renderStopList(host) {
         isAdmin && { separator: true },
         isAdmin && { label: "Удалить запись", icon: "trash", danger: true, onClick: async () => {
           if (!confirm("Удалить запись из стоп-листа? Эта связка снова станет доступна для размещения.")) return;
-          try { await api.deleteStopEntry(r.id); toast("Удалено", "success"); load(); }
+          try { await api.deleteStopEntry(r.id); toast("Удалено", "success"); refresh(); }
           catch (e) { toast(e.message, "error"); }
         }},
       ])),
@@ -162,7 +199,7 @@ export async function renderStopList(host) {
     return state.kind || state.client_id || state.source || state.date_from || state.date_to;
   }
 
-  await load();
+  await refresh();
 }
 
 // ---- helpers ----

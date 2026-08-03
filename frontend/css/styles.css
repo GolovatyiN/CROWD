@@ -259,6 +259,18 @@ button.cta:active { transform: translateY(0.5px); }
 button.cta:disabled { opacity: 0.5; cursor: not-allowed; }
 button.cta:disabled::before { transition: none; }   /* no fill teasing while disabled */
 
+/* ===== Segmented toggle (ползунок) — e.g. Наш ↔ Клиентский ===== */
+.segmented { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; padding: 3px; gap: 2px; }
+.segmented .seg {
+  height: 30px; padding: 0 16px; border-radius: 999px;
+  border: none; background: transparent; color: var(--text-2);
+  font-size: 13px; font-weight: 500; box-shadow: none;
+  transition: color var(--t-fast), background var(--t-fast);
+}
+.segmented .seg:hover { background: transparent; color: var(--text-1); border: none; box-shadow: none; }
+.segmented .seg:active { transform: none; }
+.segmented .seg.active { background: var(--surface-1); color: var(--text); box-shadow: var(--shadow-xs); }
+
 /* =============================================================
    Inputs
    ============================================================= */
