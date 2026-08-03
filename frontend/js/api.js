@@ -186,6 +186,8 @@ export const api = {
   },
 
   // admin maintenance
+  maintenanceStorage: () => request("/admin/maintenance/storage"),
+  maintenancePrune: () => request("/admin/maintenance/prune", { method: "POST" }),
   resetAllData: () => request("/admin/reset-data", { method: "POST" }).then(r => {
     // The reset wipes everything except users — drop any cached GETs so the
     // next page load reflects the empty state.

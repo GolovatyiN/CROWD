@@ -27,6 +27,21 @@ class Settings(BaseSettings):
     link_check_batch: int = 20                 # checks claimed per pass
     link_check_max_attempts: int = 5           # transient retries before manual
 
+    # ---- disk retention / maintenance ----
+    # Append-only history tables grow forever; a daily pass ages them out so the
+    # volume can't slowly refill. Current verification STATE lives in link_checks
+    # (one row/placement), so link_check_results is pure history and safe to trim.
+    # Any *_retention_days / keep set to 0 disables that particular rule.
+    retention_enabled: bool = True
+    retention_run_hours: int = 24                     # how often the pass runs
+    retention_startup_delay_sec: int = 300            # wait after boot before first pass
+    retention_delete_batch: int = 5000                # rows per delete chunk (bounded locks)
+    link_check_results_retention_days: int = 90       # keep this many days of check history
+    link_check_results_keep_per_placement: int = 50   # …and at most N most-recent per placement
+    notifications_retention_days: int = 120           # old notifications
+    import_logs_retention_days: int = 180             # old import logs
+    audit_logs_retention_days: int = 365              # audit trail — kept longer
+
     # Whether the client cabinet exposes problem statuses (link gone/anchor
     # changed) as "проблема", or masks them as "на проверке". Default: mask.
     client_shows_problems: bool = False

@@ -88,3 +88,22 @@ def link_check_run(background: BackgroundTasks, limit: int = 20, _: User = Depen
     n = min(max(limit, 1), 100)
     background.add_task(run_due_checks, n)
     return {"ok": True, "scheduled": True, "limit": n}
+
+
+@router.get("/maintenance/storage")
+def maintenance_storage(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Row counts (+ byte sizes on Postgres) for the big/append-only tables, plus
+    the active retention policy — so you can see what's using the volume."""
+    from ..services.maintenance import storage_report
+    return storage_report(db)
+
+
+@router.post("/maintenance/prune")
+def maintenance_prune(db: Session = Depends(get_db), actor: User = Depends(require_admin)):
+    """Run the disk-retention pass now (age-out old history + per-placement cap).
+    Synchronous so the caller gets back exactly what was deleted."""
+    from ..services.maintenance import run_retention
+    deleted = run_retention(db)
+    audit.log(db, actor, "system.prune", target_type="system", target_label="ретеншен истории", **deleted)
+    db.commit()
+    return {"ok": True, "deleted": deleted}

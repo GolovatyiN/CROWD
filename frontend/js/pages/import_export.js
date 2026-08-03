@@ -80,11 +80,95 @@ export async function renderImportExport(host) {
   host.appendChild(callout("info",
     "Стоп-листы изолированы: клиентский план подбирает доноров только по стоп-листу своего клиента, наш — только по нашему. Разные клиенты друг на друга не влияют. Общая — только база доноров."));
 
+  // Disk & maintenance — visible to any admin. Shows what's using the volume
+  // and lets them run the retention prune on demand.
+  if (auth.isAdmin()) {
+    host.appendChild(maintenancePanel());
+  }
+
   // Reset all data — Super-Admin only. Wipes operational data so the
   // dashboard goes back to zero, without a manual SQL trip.
   if (auth.isSuperAdmin()) {
     host.appendChild(dangerZone());
   }
+}
+
+const TABLE_LABELS = {
+  link_check_results: "История проверок ссылок",
+  link_checks: "Очередь проверок",
+  stop_list_entries: "Стоп-лист",
+  placements: "Размещения",
+  notifications: "Уведомления",
+  audit_logs: "Журнал действий",
+  import_logs: "Логи импорта",
+  anchor_plan_items: "Строки планов",
+  donors: "Доноры",
+};
+
+function fmtBytes(n) {
+  if (n == null) return "—";
+  const u = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(v < 10 && i > 0 ? 1 : 0)} ${u[i]}`;
+}
+
+function maintenancePanel() {
+  const wrap = el("div", { class: "panel" });
+  wrap.appendChild(el("div", { class: "panel-header" },
+    el("div", { class: "panel-title" }, icon("donors", { size: 15 }), el("span", { style: { marginLeft: "6px" } }, "Диск и обслуживание")),
+    el("button", { class: "ghost small", type: "button", onClick: () => load() }, icon("refresh", { size: 13 }), el("span", {}, "Обновить")),
+  ));
+  const body = el("div", {});
+  wrap.appendChild(body);
+
+  async function load() {
+    body.innerHTML = "";
+    body.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px" } }, "Загрузка…"));
+    let s;
+    try { s = await api.maintenanceStorage(); }
+    catch (e) { body.innerHTML = ""; body.appendChild(el("div", { style: { fontSize: "12.5px", color: "var(--error)" } }, e.message)); return; }
+    body.innerHTML = "";
+
+    body.appendChild(el("div", { class: "muted", style: { fontSize: "12.5px", marginBottom: "12px", lineHeight: 1.5 } },
+      "История проверок ссылок и старые уведомления/логи чистятся автоматически раз в сутки, чтобы том не заполнялся. Текущий статус каждой ссылки при этом сохраняется. Ниже — что занимает место; очистку можно запустить вручную."));
+
+    const isPg = s.dialect === "postgresql";
+    const table = el("table");
+    table.appendChild(el("thead", {}, el("tr", {},
+      el("th", { class: "left" }, "Таблица"),
+      el("th", { class: "right" }, "Строк"),
+      isPg ? el("th", { class: "right" }, "Размер") : null,
+    )));
+    const tb = el("tbody");
+    Object.entries(s.counts).filter(([, v]) => v != null).forEach(([name, cnt]) => {
+      tb.appendChild(el("tr", {},
+        el("td", { class: "left", style: { fontSize: "12.5px" } }, TABLE_LABELS[name] || name),
+        el("td", { class: "right tabular mono", style: { fontSize: "12.5px" } }, Number(cnt).toLocaleString("ru")),
+        isPg ? el("td", { class: "right tabular mono muted", style: { fontSize: "12px" } }, fmtBytes(s.table_bytes?.[name])) : null,
+      ));
+    });
+    table.appendChild(tb);
+    body.appendChild(el("div", { class: "table-wrap" }, table));
+
+    const r = s.retention || {};
+    body.appendChild(el("div", { class: "muted", style: { fontSize: "12px", marginTop: "10px" } },
+      (s.db_bytes != null ? `Размер БД: ${fmtBytes(s.db_bytes)} · ` : "")
+      + `хранение истории: ${r.link_check_results_retention_days} дн / ≤${r.link_check_results_keep_per_placement} на размещение · авто-очистка ${r.enabled ? "вкл" : "выкл"}`));
+
+    body.appendChild(el("div", { style: { marginTop: "14px" } },
+      submitButton("Очистить историю сейчас", async () => {
+        try {
+          const res = await api.maintenancePrune();
+          const d = res.deleted || {};
+          const total = Object.values(d).filter(n => typeof n === "number" && n > 0).reduce((a, b) => a + b, 0);
+          toast(total ? `Удалено строк: ${total.toLocaleString("ru")}` : "Нечего чистить — всё в пределах срока хранения", "success");
+          load();
+        } catch (e) { toast(e.message, "error"); }
+      }, { iconName: "trash" })));
+  }
+  load();
+  return wrap;
 }
 
 function dangerZone() {

@@ -60,9 +60,11 @@ def _ping_db() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from .services.link_worker import run_link_worker
+    from .services.maintenance import run_retention_worker
     tasks = [
         asyncio.create_task(neon_heartbeat()),
-        asyncio.create_task(run_link_worker()),  # ready-link verification queue
+        asyncio.create_task(run_link_worker()),      # ready-link verification queue
+        asyncio.create_task(run_retention_worker()),  # daily disk retention / history prune
     ]
     try:
         yield
