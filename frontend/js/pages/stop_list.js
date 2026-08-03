@@ -34,7 +34,7 @@ export async function renderStopList(host) {
   // ---- search + filter toggle ----
   const sb = el("div", { class: "search-bar" });
   sb.appendChild(searchInput({
-    placeholder: "Поиск по домену, ссылке, донору или анкору…",
+    placeholder: "Поиск по домену, ссылке или донору…",
     onInput: (v) => { state.q = v; state.offset = 0; debounce(load)(); },
   }));
   const filters = el("div", { class: "filters", style: { display: "none", marginBottom: "12px" } });
@@ -131,7 +131,6 @@ export async function renderStopList(host) {
     table.appendChild(el("thead", {}, el("tr", {},
       sortHeader("Целевой домен", "target_domain", state, load, "left"),
       sortHeader("Целевая ссылка", "target_url", state, load, "left"),
-      sortHeader("Анкор", "anchor_text", state, load, "left"),
       sortHeader("Донор", "donor_url", state, load, "left"),
       el("th", {}, "Уровень"),
       el("th", {}, "Источник"),
@@ -142,7 +141,6 @@ export async function renderStopList(host) {
     rows.forEach(r => tbody.appendChild(el("tr", {},
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_domain }, r.target_domain || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_url }, r.target_url || el("span", { class: "dimmed" }, "—")),
-      el("td", { class: "left truncate", title: r.anchor_text || "" }, r.anchor_text || el("span", { class: "dimmed" }, "— (безанкор)")),
       el("td", { class: "left truncate", title: r.donor_url }, el("a", { href: ensureUrl(r.donor_url), target: "_blank", rel: "noopener", class: "mono", style: { fontSize: "12px" } }, r.donor_url)),
       el("td", {}, pill(LEVEL_LABELS[r.level] || r.level || "—", LEVEL_VARIANT[r.level] || "muted")),
       el("td", { class: "muted", style: { fontSize: "12px" } }, SOURCE_LABELS[r.source] || r.source || "—"),
