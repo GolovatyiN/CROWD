@@ -18,5 +18,14 @@ class Settings(BaseSettings):
     score_refdomains_weight: float = 20
     score_backlinks_weight: float = 20
 
+    # ---- ready-link verification worker ----
+    link_check_enabled: bool = True
+    link_check_interval_hours: int = 24        # periodic re-check cadence
+    link_check_concurrency: int = 4            # max simultaneous checks
+    link_check_domain_delay_sec: float = 3.0   # politeness gap per donor domain
+    link_check_poll_sec: int = 30              # worker wake interval
+    link_check_batch: int = 20                 # checks claimed per pass
+    link_check_max_attempts: int = 5           # transient retries before manual
+
 
 settings = Settings()

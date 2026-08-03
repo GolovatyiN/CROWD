@@ -8,10 +8,10 @@ record that the reset happened, and who did it).
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, BackgroundTasks, Depends
 from sqlalchemy.orm import Session
 
-from ..auth import require_super_admin
+from ..auth import require_admin, require_super_admin
 from ..database import get_db
 from ..models import (
     AnchorPlan,
@@ -25,6 +25,7 @@ from ..models import (
     User,
 )
 from ..services import audit
+from ..services.link_worker import queue_status, run_due_checks
 from ..services.matcher import invalidate_donor_cache
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -70,3 +71,20 @@ def reset_data(db: Session = Depends(get_db), actor: User = Depends(require_supe
     db.commit()
     invalidate_donor_cache()
     return {"ok": True, "deleted": counts}
+
+
+# ---------- link-check control (Phase 6) ----------
+
+@router.get("/link-check/status")
+def link_check_status(db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    """Queue overview: counts by status, how many are due, config."""
+    return queue_status(db)
+
+
+@router.post("/link-check/run")
+def link_check_run(background: BackgroundTasks, limit: int = 20, _: User = Depends(require_admin)):
+    """Manually trigger a verification pass now (runs in the background threadpool,
+    so the request returns immediately)."""
+    n = min(max(limit, 1), 100)
+    background.add_task(run_due_checks, n)
+    return {"ok": True, "scheduled": True, "limit": n}

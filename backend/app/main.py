@@ -59,15 +59,21 @@ def _ping_db() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(neon_heartbeat())
+    from .services.link_worker import run_link_worker
+    tasks = [
+        asyncio.create_task(neon_heartbeat()),
+        asyncio.create_task(run_link_worker()),  # ready-link verification queue
+    ]
     try:
         yield
     finally:
-        task.cancel()
-        try:
-            await task
-        except asyncio.CancelledError:
-            pass
+        for t in tasks:
+            t.cancel()
+        for t in tasks:
+            try:
+                await t
+            except asyncio.CancelledError:
+                pass
 
 
 app = FastAPI(title="Crowd", version="0.1.0", lifespan=lifespan)
