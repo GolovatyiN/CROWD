@@ -20,7 +20,7 @@ from ..schemas import (
 from ..services import audit
 from ..utils import iso_utc
 from ..services.importer import import_anchor_plan, plan_items_to_csv
-from ..services.matcher import auto_match_plan, find_best_donor, quality_score, _blocked_donor_urls_for_target, _candidates_query, link_type_compatible
+from ..services.matcher import auto_match_plan, find_best_donor, quality_score, blocked_for_item, _candidates_query, link_type_compatible, extract_domain
 
 router = APIRouter(prefix="/anchor-plans", tags=["anchor_plans"])
 
@@ -422,11 +422,13 @@ def list_candidates(
     item = db.get(AnchorPlanItem, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Не найдено")
-    blocked = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
+    blocked, blocked_domains = blocked_for_item(db, item)
     donors = db.execute(_candidates_query(db, item)).scalars().all()
     eligible = []
     for d in donors:
         if d.donor_url in blocked:
+            continue
+        if blocked_domains and (d.domain or extract_domain(d.donor_url)) in blocked_domains:
             continue
         if not link_type_compatible(item.required_link_type, d.link_type):
             continue

@@ -42,7 +42,7 @@ export async function renderImportExport(host) {
 
   host.appendChild(section({
     title: "Стоп-лист",
-    hint: "Обязательно: donor_url и target_url (либо target_domain). Опционально: result_url, comment.",
+    hint: "Два формата на выбор. 1) Таблица: колонки donor_url + target_url (либо target_domain), опционально result_url, comment. 2) Матрица: в верхней строке — целевые домены (бренды), в каждом столбце под ними — доноры этого бренда. Домены-доноры блокируются для всего бренда.",
     importFn: (file) => api.importStopList(file),
     exportFn: () => api.exportStopList(),
   }));

@@ -439,52 +439,163 @@ STOPLIST_SYNONYMS = {
 }
 
 
+def _domainish(value: str) -> str:
+    """Return the bare domain of `value` only if it really looks like a domain
+    (a dot-bearing host). Keeps the permissive matrix parser from turning an
+    unrelated table (labels, numbers, free text) into bogus stop-list rows.
+    """
+    d = extract_domain(value)
+    return d if ("." in d and len(d) >= 4) else ""
+
+
+def _read_matrix_raw(file_bytes: bytes, filename: str) -> pd.DataFrame:
+    """Read a sheet WITHOUT treating row 1 as a header, preserving exact cell
+    values. Used for the 'matrix' stop-list layout, where the top row holds the
+    target (brand) domains and each column below lists that brand's used donors.
+    """
+    name = (filename or "").lower()
+    bio = io.BytesIO(file_bytes)
+    if name.endswith(".xlsx") or name.endswith(".xls"):
+        df = pd.read_excel(bio, dtype=object, header=None)
+    else:
+        try:
+            df = pd.read_csv(bio, dtype=object, header=None)
+        except UnicodeDecodeError:
+            bio.seek(0)
+            df = pd.read_csv(bio, dtype=object, header=None, encoding="cp1251")
+    return df.where(pd.notnull(df), None)
+
+
+def _stoplist_pairs_matrix(file_bytes: bytes, filename: str) -> list[dict]:
+    """Parse the matrix layout into (target, donor) pairs.
+
+    Row 0 = target/brand domains (one per column). Rows below = donor domains
+    already used for that brand. Blank cells are skipped; columns may have
+    different lengths. Everything is normalised to bare domains so it lines up
+    with how the auto-matcher compares donors and targets.
+    """
+    df = _read_matrix_raw(file_bytes, filename)
+    if df.shape[0] < 2 or df.shape[1] < 1:
+        return []
+    pairs: list[dict] = []
+    for j in range(df.shape[1]):
+        tdom = _domainish(_to_str(df.iat[0, j]))
+        if not tdom:
+            continue
+        for i in range(1, df.shape[0]):
+            cell = _to_str(df.iat[i, j])
+            if not cell:
+                continue
+            ddom = _domainish(cell)
+            if not ddom:
+                continue
+            pairs.append({
+                "target_url": tdom,        # bare domain => brand/domain-level entry
+                "target_domain": tdom,
+                "donor_url": ddom,
+                "anchor_text": "",
+                "result_url": "",
+                "comment": "",
+                "row": i + 1,
+            })
+    return pairs
+
+
+def _stoplist_pairs_long(df: pd.DataFrame) -> list[dict]:
+    """Parse the classic long layout (donor_url + target_url/target_domain)."""
+    pairs: list[dict] = []
+    for idx, row in df.iterrows():
+        target_url = _to_str(row.get("target_url"))
+        target_domain = _to_str(row.get("target_domain")) or extract_domain(target_url)
+        pairs.append({
+            # fall back to the domain so the UNIQUE constraint still works
+            "target_url": target_url or target_domain,
+            "target_domain": target_domain or extract_domain(target_url),
+            "donor_url": _to_str(row.get("donor_url")),
+            "anchor_text": "",
+            "result_url": _to_str(row.get("result_url")),
+            "comment": _to_str(row.get("comment")),
+            "row": int(idx) + 2,
+        })
+    return pairs
+
+
+def _stoplist_is_long(df: pd.DataFrame) -> bool:
+    return "donor_url" in df.columns and ("target_url" in df.columns or "target_domain" in df.columns)
+
+
 def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Optional[int]) -> dict:
-    df = _apply_synonyms(_read_table(file_bytes, filename), STOPLIST_SYNONYMS)
-    if "donor_url" not in df.columns:
-        raise ValueError("В файле нет обязательной колонки 'donor_url'")
-    if "target_url" not in df.columns and "target_domain" not in df.columns:
-        raise ValueError("В файле нет колонок 'target_url' или 'target_domain'")
+    # Detect the layout. A classic 'long' file has recognisable headers
+    # (donor_url + target_url/target_domain); anything else is treated as the
+    # 'matrix' layout (brand domains across the top row, donors listed below).
+    try:
+        df_long = _apply_synonyms(_read_table(file_bytes, filename), STOPLIST_SYNONYMS)
+    except Exception:
+        df_long = None
+
+    if df_long is not None and _stoplist_is_long(df_long):
+        pairs = _stoplist_pairs_long(df_long)
+    else:
+        pairs = _stoplist_pairs_matrix(file_bytes, filename)
+        if not pairs:
+            raise ValueError(
+                "Не удалось распознать стоп-лист. Нужен либо файл с колонками "
+                "'donor_url' и 'target_url'/'target_domain', либо матрица: в верхней "
+                "строке — целевые домены, под каждым столбцом — доноры."
+            )
+
+    # Preload donor id lookups (by full url and by domain) so matrix rows that
+    # carry bare domains still link to an existing donor.
+    donor_by_url = dict(db.query(Donor.donor_url, Donor.id).all())
+    donor_by_domain = {d: i for d, i in db.query(Donor.domain, Donor.id).all() if d}
+
+    # Preload existing (target_url, donor_url) pairs for the targets in this file
+    # so we can dedupe without a query per row.
+    target_urls = [t for t in {p["target_url"] for p in pairs if p["target_url"]}]
+    existing: set[tuple] = set()
+    for k in range(0, len(target_urls), 500):
+        chunk = target_urls[k:k + 500]
+        for tu, du in db.query(StopListEntry.target_url, StopListEntry.donor_url).filter(
+            StopListEntry.target_url.in_(chunk)
+        ).all():
+            existing.add((tu, du))
 
     errors: list[dict] = []
     inserted = skipped = failed = 0
-    for idx, row in df.iterrows():
-        donor_url = _to_str(row.get("donor_url"))
-        target_url = _to_str(row.get("target_url"))
-        target_domain = _to_str(row.get("target_domain")) or extract_domain(target_url)
-        if not donor_url or (not target_url and not target_domain):
+    seen: set[tuple] = set()
+    for p in pairs:
+        donor_url = p["donor_url"]
+        target_url = p["target_url"]
+        target_domain = p["target_domain"] or extract_domain(target_url)
+        if not donor_url or not target_url:
             failed += 1
-            errors.append({"row": int(idx) + 2, "error": "пустые donor_url или target_url"})
+            errors.append({"row": p.get("row"), "error": "пустой donor или target"})
             continue
-        if not target_url:
-            target_url = target_domain  # fall back so the UNIQUE constraint still works
-
-        exists = db.query(StopListEntry).filter(
-            StopListEntry.target_url == target_url,
-            StopListEntry.donor_url == donor_url,
-        ).first()
-        if exists:
+        key = (target_url, donor_url)
+        if key in existing or key in seen:
             skipped += 1
             continue
-
-        donor = db.query(Donor).filter(Donor.donor_url == donor_url).first()
+        seen.add(key)
+        donor_id = donor_by_url.get(donor_url) or donor_by_domain.get(extract_domain(donor_url))
         entry = StopListEntry(
             target_url=target_url,
-            target_domain=target_domain or extract_domain(target_url),
+            target_domain=target_domain,
             donor_url=donor_url,
-            donor_id=donor.id if donor else None,
-            result_url=_to_str(row.get("result_url")),
-            comment=_to_str(row.get("comment")),
+            donor_id=donor_id,
+            anchor_text=p.get("anchor_text", ""),
+            result_url=p.get("result_url", ""),
+            comment=p.get("comment", ""),
             placed_by=user_id,
             source_anchor_plan="(импортировано)",
         )
         db.add(entry)
         inserted += 1
 
+    total = len(pairs)
     log = ImportLog(
         type="stop_list",
         file_name=filename,
-        rows_total=int(len(df)),
+        rows_total=total,
         rows_inserted=inserted,
         rows_updated=0,
         rows_skipped=skipped,
@@ -495,7 +606,7 @@ def import_stop_list(db: Session, file_bytes: bytes, filename: str, user_id: Opt
     db.add(log)
     db.flush()
     return {
-        "rows_total": int(len(df)),
+        "rows_total": total,
         "rows_inserted": inserted,
         "rows_updated": 0,
         "rows_skipped": skipped,

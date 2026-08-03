@@ -52,13 +52,13 @@ def _load_donor_pool(db: Session) -> list[dict]:
         return _DONOR_CACHE["records"]
     rows = db.execute(
         select(
-            Donor.id, Donor.donor_url, Donor.geo, Donor.language,
+            Donor.id, Donor.donor_url, Donor.domain, Donor.geo, Donor.language,
             Donor.link_type, Donor.tr, Donor.organic_traffic,
             Donor.ref_domains, Donor.backlinks,
         ).where(Donor.is_active.is_(True))
     ).all()
     records: list[dict] = []
-    for d_id, d_url, d_geo, d_lang, d_lt, d_tr, d_traf, d_ref, d_back in rows:
+    for d_id, d_url, d_domain, d_geo, d_lang, d_lt, d_tr, d_traf, d_ref, d_back in rows:
         score = (
             (d_tr or 0) * settings.score_tr_weight
             + math.log1p(max(d_traf or 0, 0)) * settings.score_traffic_weight
@@ -68,6 +68,7 @@ def _load_donor_pool(db: Session) -> list[dict]:
         records.append({
             "id": d_id,
             "donor_url": d_url,
+            "domain": (d_domain or extract_domain(d_url or "")),
             # Keep both the raw value and the normalised code. A non-empty raw
             # geo that fails to normalise must NOT be treated as "worldwide" —
             # that bug let Bosnian/Macedonian donors match Austrian targets.
@@ -166,6 +167,48 @@ def _blocked_donor_urls_for_target(db: Session, target_url: str, anchor_text: st
     return out
 
 
+def _domain_level_blocks(db: Session, target_domains: set[str]) -> dict[str, set[str]]:
+    """target_domain -> set of blocked donor DOMAINS.
+
+    "Domain-level" (a.k.a. brand-level) stop entries are those whose target_url
+    is a bare domain (no scheme). They come from the imported brand stop-list —
+    the matrix layout (brand across the top, donors below) or a target_domain-only
+    file — and mean "this donor is already used for this brand", so the donor is
+    blocked across the ENTIRE brand regardless of page or anchor. URL-level
+    entries (target_url with a scheme, e.g. from real placements) are untouched
+    and keep their exact (target_url, anchor) semantics.
+    """
+    out: dict[str, set[str]] = {}
+    tlist = [t for t in {(t or "").lower() for t in target_domains} if t]
+    for k in range(0, len(tlist), 500):
+        chunk = tlist[k:k + 500]
+        rows = db.execute(
+            select(StopListEntry.target_domain, StopListEntry.donor_url).where(
+                and_(
+                    StopListEntry.target_domain.in_(chunk),
+                    ~StopListEntry.target_url.like("%://%"),
+                )
+            )
+        ).all()
+        for tdom, du in rows:
+            dd = extract_domain(du) if du else ""
+            if dd:
+                out.setdefault((tdom or "").lower(), set()).add(dd)
+    return out
+
+
+def blocked_for_item(db: Session, item: AnchorPlanItem) -> tuple[set[str], set[str]]:
+    """(blocked donor_urls, blocked donor domains) for one plan item.
+
+    - donor_urls: exact urls forbidden for this ANCHOR (target_url + anchor_text).
+    - donor domains: forbidden across the whole target brand (domain-level entries).
+    """
+    urls = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
+    tdom = (getattr(item, "target_domain", "") or extract_domain(item.target_url or "")).lower()
+    domains = _domain_level_blocks(db, {tdom}).get(tdom, set()) if tdom else set()
+    return urls, domains
+
+
 def _candidates_query(db: Session, item: AnchorPlanItem):
     """Active donors only — geo/language are checked in Python after the
     fetch because we need normalised comparison (Spain == ES == España)
@@ -205,7 +248,7 @@ def find_best_donor(
     *,
     exclude_donor_ids: Optional[Iterable[int]] = None,
 ) -> Optional[Donor]:
-    blocked_urls = _blocked_donor_urls_for_target(db, item.target_url, item.anchor_text or "")
+    blocked_urls, blocked_domains = blocked_for_item(db, item)
     excluded_ids = set(exclude_donor_ids or [])
     item_geo = normalize_country(item.geo or "")
     item_lang = normalize_language(item.language or "")
@@ -217,6 +260,8 @@ def find_best_donor(
         if d.id in excluded_ids:
             continue
         if d.donor_url in blocked_urls:
+            continue
+        if blocked_domains and (d.domain or extract_domain(d.donor_url)) in blocked_domains:
             continue
         if not link_type_compatible(item.required_link_type, d.link_type):
             continue
@@ -289,6 +334,15 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         ).all():
             blocked_by_anchor.setdefault((tu, at or ""), set()).add(du)
 
+    # ---- brand/domain-level blocks (imported stop-list) ----
+    # A donor blocked for a whole brand is excluded from every page of that
+    # brand, independent of anchor. Computed once for all target domains here.
+    target_domains = {
+        (it.target_domain or extract_domain(it.target_url or "")).lower()
+        for it in items if (it.target_domain or it.target_url)
+    }
+    domain_blocks_by_tdom = _domain_level_blocks(db, target_domains)
+
     # ---- per-item pick ----
     matched = 0
     problem_items: list[int] = []
@@ -300,6 +354,8 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
         anchor_key = (item.target_url, item.anchor_text or "")
         used_ids = used_per_anchor.setdefault(anchor_key, set())
         blocked_urls = blocked_by_anchor.get(anchor_key, set())
+        item_tdom = (item.target_domain or extract_domain(item.target_url or "")).lower()
+        dblocks = domain_blocks_by_tdom.get(item_tdom, set())
         item_geo = normalize_country(item.geo or "")
         item_lang = normalize_language(item.language or "")
         req_lt = (item.required_link_type or "").lower()
@@ -315,6 +371,8 @@ def auto_match_plan(db: Session, plan_id: int) -> dict:
             if d["id"] in used_ids:
                 continue
             if d["donor_url"] in blocked_urls:
+                continue
+            if dblocks and d["domain"] in dblocks:
                 continue
             if require_lt and d["link_type"] != req_lt and d["link_type"] != "mixed":
                 dropped_link += 1
