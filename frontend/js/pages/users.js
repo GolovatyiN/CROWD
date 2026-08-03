@@ -120,13 +120,22 @@ async function openUserForm(user, reload) {
     el("input", { name: "email", type: "email", value: user?.email || "", required: true, readonly: isEdit ? "" : null })));
   form.appendChild(el("div", { class: "field" }, el("label", {}, "Полное имя"),
     el("input", { name: "full_name", type: "text", value: user?.full_name || "" })));
-  form.appendChild(el("div", { class: "field" }, el("label", {}, "Роль"),
-    selectInput(user?.role || "user", ROLES, () => {}, "user", ROLE_LABELS, "role")));
-  // Client selector — used only when role='client' (backend ignores it otherwise).
-  const clientLabels = { "": "— (только для роли «Клиент»)" };
+  // Client selector — shown ONLY when the role is «Клиент» (irrelevant for staff
+  // roles). Hidden fields are cleared so client_id isn't submitted for staff.
+  const clientLabels = {};
   clients.forEach(c => (clientLabels[c.id] = c.name));
-  form.appendChild(el("div", { class: "field" }, el("label", {}, "Клиент"),
-    selectInput(user?.client_id || "", ["", ...clients.map(c => c.id)], () => {}, "— (только для роли «Клиент»)", clientLabels, "client_id")));
+  const clientField = el("div", { class: "field" }, el("label", {}, "Клиент"),
+    selectInput(user?.client_id || "", ["", ...clients.map(c => c.id)], () => {}, "— выберите клиента —", clientLabels, "client_id"));
+  const clientSelect = clientField.querySelector("select");
+  const toggleClientField = (role) => {
+    const show = role === "client";
+    clientField.style.display = show ? "" : "none";
+    if (!show && clientSelect) clientSelect.value = "";
+  };
+  form.appendChild(el("div", { class: "field" }, el("label", {}, "Роль"),
+    selectInput(user?.role || "user", ROLES, toggleClientField, "user", ROLE_LABELS, "role")));
+  form.appendChild(clientField);
+  toggleClientField(user?.role || "user");
   form.appendChild(el("div", { class: "field" }, el("label", {}, isEdit ? "Новый пароль (не обязательно)" : "Пароль *"),
     el("input", { name: "password", type: "password", required: isEdit ? null : "" })));
   if (isEdit) {
