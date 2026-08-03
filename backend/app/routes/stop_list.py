@@ -29,7 +29,7 @@ SL_SORT_FIELDS = {
 }
 
 
-@router.get("", response_model=list[StopListOut])
+@router.get("")
 def list_stop_list(
     db: Session = Depends(get_db),
     _: User = Depends(require_staff),
@@ -46,9 +46,12 @@ def list_stop_list(
     date_to: Optional[str] = None,
     sort: str = "placed_at",
     order: str = "desc",
-    limit: int = 500,
+    limit: int = 50,
     offset: int = 0,
 ):
+    """Paginated stop-list with filters. Returns {items, total, limit, offset}.
+    The table can hold hundreds of thousands of rows, so a page + a total count
+    is served rather than the whole list."""
     query = db.query(StopListEntry)
     if client_id is not None:
         query = query.filter(StopListEntry.client_id == client_id)
@@ -66,6 +69,7 @@ def list_stop_list(
             func.lower(StopListEntry.target_url).like(like),
             func.lower(StopListEntry.target_domain).like(like),
             func.lower(StopListEntry.donor_url).like(like),
+            func.lower(StopListEntry.anchor_text).like(like),
         ))
     if target_domain:
         query = query.filter(func.lower(StopListEntry.target_domain) == target_domain.lower())
@@ -83,9 +87,19 @@ def list_stop_list(
             query = query.filter(StopListEntry.placed_at <= datetime.fromisoformat(date_to))
         except ValueError:
             pass
+    total = query.count()
+    limit = max(1, min(limit, 500))
+    offset = max(0, offset)
     sort_col = SL_SORT_FIELDS.get(sort.lower(), StopListEntry.placed_at)
     direction = sort_col.desc() if order.lower() == "desc" else sort_col.asc()
-    return query.order_by(direction).offset(offset).limit(limit).all()
+    # secondary key on id keeps paging stable when the primary key ties
+    rows = query.order_by(direction, StopListEntry.id.desc()).offset(offset).limit(limit).all()
+    return {
+        "items": [StopListOut.model_validate(r) for r in rows],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+    }
 
 
 @router.post("/import", response_model=ImportPreview)
