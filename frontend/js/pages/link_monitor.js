@@ -164,6 +164,8 @@ async function historyModal(placementId) {
 
 function sel(options, labels, value, onChange) {
   const s = document.createElement("select");
+  s.style.width = "auto";
+  s.style.minWidth = "150px";
   s.addEventListener("change", e => onChange(e.target.value));
   options.forEach(o => {
     const opt = document.createElement("option");
