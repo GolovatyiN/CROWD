@@ -5,7 +5,6 @@ import { toast } from "../components/toast.js";
 
 const KIND_LABELS = { internal: "Наш", client: "Клиентский" };
 const KIND_VARIANT = { internal: "muted", client: "info" };
-const SOURCE_LABELS = { auto: "Авто", import: "Импорт", manual: "Ручное", historical: "История", client_forbidden: "Запрет клиента" };
 
 export async function renderStopList(host) {
   const isAdmin = auth.isAdmin();
@@ -22,7 +21,7 @@ export async function renderStopList(host) {
   ));
 
   const state = {
-    q: "", kind: "internal", client_id: "", source: "",
+    q: "", kind: "internal", client_id: "",
     date_from: "", date_to: "", sort: "placed_at", order: "desc",
     offset: 0, limit: 100,
   };
@@ -76,19 +75,11 @@ export async function renderStopList(host) {
 
   const applyFilter = () => { state.offset = 0; refresh(); };
   filters.append(
-    selectField("Источник", state.source, [
-      { value: "", label: "Любой" },
-      { value: "auto", label: "Авто (после размещения)" },
-      { value: "import", label: "Импорт" },
-      { value: "manual", label: "Ручное" },
-      { value: "historical", label: "История" },
-      { value: "client_forbidden", label: "Запрет клиента" },
-    ], v => { state.source = v; }),
     field("С", el("input", { type: "date", onInput: (e) => state.date_from = e.target.value })),
     field("По", el("input", { type: "date", onInput: (e) => state.date_to = e.target.value })),
     el("button", { onClick: applyFilter }, "Применить"),
     el("button", { class: "ghost", onClick: () => {
-      Object.assign(state, { source: "", date_from: "", date_to: "", offset: 0 });
+      Object.assign(state, { date_from: "", date_to: "", offset: 0 });
       filters.querySelectorAll("input").forEach(i => i.value = "");
       filters.querySelectorAll("select").forEach(s => s.value = "");
       refresh();
@@ -119,11 +110,11 @@ export async function renderStopList(host) {
     const my = first ? ++loadSeq : loadSeq;
     if (first) {
       wrap.innerHTML = "";
-      wrap.appendChild(tableSkeleton(7, 7));
+      wrap.appendChild(tableSkeleton(7, 6));
       pager.innerHTML = "";
     }
     const params = { sort: state.sort, order: state.order, limit: state.limit, offset: state.offset };
-    ["q", "kind", "client_id", "source", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
+    ["q", "kind", "client_id", "date_from", "date_to"].forEach(k => { if (state[k] !== "") params[k] = state[k]; });
     try {
       const data = await api.stopList(params);
       if (my !== loadSeq) return;    // superseded by a newer search
@@ -168,7 +159,6 @@ export async function renderStopList(host) {
       sortHeader("Целевая ссылка", "target_url", state, refresh, "left"),
       sortHeader("Донор", "donor_url", state, refresh, "left"),
       el("th", {}, "Стоп-лист"),
-      el("th", {}, "Источник"),
       sortHeader("Дата", "placed_at", state, refresh),
       el("th", { class: "right" }, ""),
     )));
@@ -178,7 +168,6 @@ export async function renderStopList(host) {
       el("td", { class: "left truncate mono", style: { fontSize: "12px" }, title: r.target_url }, r.target_url || el("span", { class: "dimmed" }, "—")),
       el("td", { class: "left truncate", title: r.donor_url }, el("a", { href: ensureUrl(r.donor_url), target: "_blank", rel: "noopener", class: "mono", style: { fontSize: "12px" } }, r.donor_url)),
       el("td", {}, pill(KIND_LABELS[r.kind] || "—", KIND_VARIANT[r.kind] || "muted")),
-      el("td", { class: "muted", style: { fontSize: "12px" } }, SOURCE_LABELS[r.source] || r.source || "—"),
       el("td", { class: "muted", title: fmtDate(r.placed_at) }, fmtRelative(r.placed_at)),
       el("td", { class: "right actions" }, menuButton([
         r.result_url && { label: "Открыть результат", icon: "external", onClick: () => window.open(r.result_url, "_blank") },
@@ -196,7 +185,7 @@ export async function renderStopList(host) {
   }
 
   function hasFilters() {
-    return state.kind || state.client_id || state.source || state.date_from || state.date_to;
+    return (state.kind === "client") || state.client_id || state.date_from || state.date_to;
   }
 
   await refresh();
