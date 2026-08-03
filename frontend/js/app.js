@@ -19,6 +19,7 @@ import { renderClients, renderClientDetail } from "./pages/clients.js";
 import { renderClientDashboard, renderClientProject } from "./pages/client_cabinet.js";
 import { renderLinkMonitor } from "./pages/link_monitor.js";
 import { renderNotifications } from "./pages/notifications.js";
+import { renderAllocation } from "./pages/allocation.js";
 
 // roles: who can SEE each nav item. user / admin / super_admin.
 const NAV = [
@@ -31,6 +32,7 @@ const NAV = [
   { hash: "#/stop-list", title: "Стоп-лист", icon: "stop", roles: ["user", "admin", "super_admin"], group: "data" },
   { hash: "#/link-monitor", title: "Контроль ссылок", icon: "refresh", roles: ["teamlead", "manager", "admin", "super_admin"], group: "data" },
   { hash: "#/email-accounts", title: "Аккаунты", icon: "user", roles: ["user", "admin", "super_admin"], group: "data" },
+  { hash: "#/allocation", title: "Распределение", icon: "tasks", roles: ["manager", "admin", "super_admin"], group: "admin" },
   { hash: "#/import-export", title: "Импорт / экспорт", icon: "swap", roles: ["admin", "super_admin"], group: "admin" },
   { hash: "#/users", title: "Сотрудники", icon: "users", roles: ["super_admin"], group: "admin" },
   { hash: "#/audit", title: "Журнал действий", icon: "file", roles: ["super_admin"], group: "admin" },
@@ -61,6 +63,7 @@ const ROUTES = [
   { pattern: /^#\/audit$/, render: renderAudit, roles: ["super_admin"] },
   { pattern: /^#\/link-monitor$/, render: renderLinkMonitor, roles: ["teamlead", "manager", "admin", "super_admin"] },
   { pattern: /^#\/notifications$/, render: renderNotifications, roles: ["teamlead", "manager", "admin", "super_admin"] },
+  { pattern: /^#\/allocation$/, render: renderAllocation, roles: ["manager", "admin", "super_admin"] },
   { pattern: /^#\/import-export$/, render: renderImportExport, roles: ["admin", "super_admin"] },
 ];
 

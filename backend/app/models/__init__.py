@@ -352,6 +352,24 @@ class Notification(Base):
     )
 
 
+class AllocationSetting(Base):
+    """Internal/client work split + daily/monthly targets. scope='global'
+    (user_id NULL) or scope='employee' (per user; overrides global)."""
+    __tablename__ = "allocation_settings"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    scope: Mapped[str] = mapped_column(String(16), default="global")
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+    internal_pct: Mapped[int] = mapped_column(Integer, default=50)
+    client_pct: Mapped[int] = mapped_column(Integer, default=50)
+    daily_target: Mapped[int] = mapped_column(Integer, default=0)
+    monthly_target: Mapped[int] = mapped_column(Integer, default=0)
+    period_start: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    period_end: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    updated_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow)
+
+
 class AuditLog(Base):
     """Append-only journal of sensitive admin actions.
 

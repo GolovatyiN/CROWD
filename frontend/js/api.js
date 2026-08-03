@@ -164,6 +164,12 @@ export const api = {
   linkCheckStatus: () => request("/admin/link-check/status"),
   linkCheckRun: (limit = 50) => request(`/admin/link-check/run?limit=${limit}`, { method: "POST" }),
 
+  // work allocation (наши/клиентские)
+  allocation: () => request("/allocation"),
+  saveAllocation: (data) => request("/allocation", { method: "PUT", body: data }),
+  allocationPlan: (userId, day) => request(`/allocation/plan?${qs({ user_id: userId, day })}`),
+  autoAssign: (data) => request("/allocation/auto-assign", { method: "POST", body: data }),
+
   // notifications
   notificationsList: (params = {}) => request(`/notifications?${qs(params)}`),
   markNotificationRead: (id) => request(`/notifications/${id}/read`, { method: "POST" }),
